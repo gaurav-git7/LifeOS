@@ -1,0 +1,38 @@
+name: weekly-db-backup
+
+# Encrypted weekly pg_dump of the production database, kept as a private
+# workflow artifact for 90 days. ARCHITECTURE.md §19.4.
+# Secrets needed (repo → Settings → Secrets and variables → Actions):
+#   SUPABASE_DB_URL     postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+#   BACKUP_PASSPHRASE   long random passphrase (store it in your password manager!)
+# Restore: gpg -d lifeos-<date>.sql.gz.gpg | gunzip | psql "<db url>"
+
+on:
+  schedule:
+    - cron: "30 20 * * 0" # Sundays 20:30 UTC (Monday 02:00 IST)
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Postgres client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+      - name: Dump, compress, encrypt
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          FILE="lifeos-$(date -u +%Y-%m-%d).sql.gz.gpg"
+          pg_dump "$DB_URL" --schema=app --no-owner --no-privileges | gzip -9 \
+            | gpg --batch --yes --symmetric --cipher-algo AES256 --passphrase "$PASSPHRASE" -o "$FILE"
+          ls -lh "$FILE"
+          echo "FILE=$FILE" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.FILE }}
+          path: ${{ env.FILE }}
+          retention-days: 90

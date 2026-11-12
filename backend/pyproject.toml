@@ -1,0 +1,52 @@
+[project]
+name = "lifeos-backend"
+version = "0.1.0"
+description = "LifeOS API - FastAPI modular monolith"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "sqlalchemy[asyncio]>=2.0.36",
+  "asyncpg>=0.30",
+  "aiosqlite>=0.20",
+  "alembic>=1.14",
+  "pydantic>=2.9",
+  "pydantic-settings>=2.6",
+  "email-validator>=2.2",
+  "argon2-cffi>=23.1",
+  "pyjwt>=2.10",
+  "google-genai>=1.0",
+  "firebase-admin>=6.6",
+  "httpx>=0.28",
+  "slowapi>=0.1.9",
+  "python-dateutil>=2.9",
+  "tzdata>=2024.2",
+  "python-multipart>=0.0.20",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.8"]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+markers = ["evals: real-LLM evaluation cases (not run in CI)"]
+addopts = "-m 'not evals'"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC"]
+# E501: the formatter owns line length (only long string literals remain).
+# UP046: Page uses classic Generic[T] on purpose (Pydantic generic models).
+ignore = ["B008", "E501", "UP046"]

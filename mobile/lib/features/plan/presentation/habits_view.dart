@@ -1,0 +1,234 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+
+import '../../../core/widgets/widgets.dart';
+import '../../../data/models.dart';
+import '../../../data/stores.dart';
+
+/// Habits tab: 7-day dot rows (tap any day), streaks, month heat-map in detail.
+class HabitsView extends ConsumerWidget {
+  const HabitsView({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final habits = ref.watch(habitsProvider);
+    final today = dateOnly(DateTime.now());
+    final days = [for (var i = 6; i >= 0; i--) today.subtract(Duration(days: i))];
+    final d = Motion.of(context, Motion.check);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: Space.screen),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const SizedBox(width: 44 + Space.md),
+              const Spacer(),
+              for (final day in days)
+                SizedBox(
+                  width: 30,
+                  child: Text(
+                    DateFormat('E').format(day).substring(0, 1),
+                    textAlign: TextAlign.center,
+                    style: LifeText.caption.copyWith(color: sameDay(day, today) ? LifeColors.text : LifeColors.text3),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: Space.sm),
+          for (final (i, h) in habits.indexed)
+            StaggeredEntry(
+              index: i,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: Space.cardGap),
+                child: GlassCard(
+                  padding: const EdgeInsets.all(Space.lg),
+                  onTap: () => showGlassSheet<void>(context, builder: (_) => _HabitDetail(habitId: h.id)),
+                  child: Row(
+                    children: [
+                      IconChip(icon: h.icon, color: h.color, size: 44),
+                      const SizedBox(width: Space.md),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(h.title, style: LifeText.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
+                            Row(
+                              children: [
+                                const Icon(LucideIcons.flame, size: 13, color: LifeColors.amber),
+                                const SizedBox(width: 3),
+                                Text('${h.streak} days', style: LifeText.mono),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      for (final day in days)
+                        SizedBox(
+                          width: 30,
+                          child: Center(
+                            child: GestureDetector(
+                              onTap: () => ref.read(habitsProvider.notifier).toggle(h.id, day),
+                              child: AnimatedContainer(
+                                duration: d,
+                                width: sameDay(day, today) ? 24 : 18,
+                                height: sameDay(day, today) ? 24 : 18,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: h.doneOn(day) ? h.color : Colors.transparent,
+                                  border: Border.all(
+                                    color: h.doneOn(day) ? Colors.transparent : (sameDay(day, today) ? Colors.white54 : LifeColors.glassBorder),
+                                    width: 1.4,
+                                  ),
+                                ),
+                                child: h.doneOn(day) && sameDay(day, today)
+                                    ? const Icon(Icons.check_rounded, size: 15, color: LifeColors.onLight)
+                                    : null,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          GradientButton(
+            label: 'New habit',
+            icon: LucideIcons.plus,
+            variant: ButtonVariant.glass,
+            expand: true,
+            onPressed: () => _newHabit(context, ref),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _newHabit(BuildContext context, WidgetRef ref) {
+    final c = TextEditingController();
+    showGlassSheet<void>(
+      context,
+      title: 'New habit',
+      builder: (sheet) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(controller: c, autofocus: true, decoration: const InputDecoration(hintText: 'e.g. Meditate 10 minutes')),
+          const SizedBox(height: Space.lg),
+          GradientButton(
+            label: 'Start habit',
+            expand: true,
+            onPressed: () {
+              if (c.text.trim().isEmpty) return;
+              ref.read(habitsProvider.notifier).add(Habit(
+                    id: newId(),
+                    title: c.text.trim(),
+                    icon: LucideIcons.sparkle,
+                    color: LifeColors.coral,
+                    startedOn: dateOnly(DateTime.now()),
+                  ));
+              Navigator.of(sheet).pop();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HabitDetail extends ConsumerWidget {
+  const _HabitDetail({required this.habitId});
+
+  final String habitId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final h = ref.watch(habitsProvider).firstWhere((x) => x.id == habitId);
+    final today = dateOnly(DateTime.now());
+    final first = DateTime(today.year, today.month, 1);
+    final daysInMonth = DateTime(today.year, today.month + 1, 0).day;
+    final lead = first.weekday - 1;
+    final done = h.doneDays.where((d) => d.month == today.month && d.year == today.year).length;
+    final pct = (done / today.day * 100).round();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            IconChip(icon: h.icon, color: h.color, size: 44),
+            const SizedBox(width: Space.md),
+            Expanded(child: Text(h.title, style: LifeText.h2)),
+          ],
+        ),
+        const SizedBox(height: Space.xl),
+        Row(
+          children: [
+            Expanded(child: _Stat(label: 'Current streak', value: '${h.streak}', unit: 'days')),
+            Expanded(child: _Stat(label: 'Best streak', value: '${h.bestStreak}', unit: 'days')),
+            Expanded(child: _Stat(label: 'This month', value: '$pct', unit: '%')),
+          ],
+        ),
+        const SizedBox(height: Space.xl),
+        Text(DateFormat('MMMM yyyy').format(today), style: LifeText.eyebrow),
+        const SizedBox(height: Space.md),
+        GridView.count(
+          crossAxisCount: 7,
+          shrinkWrap: true,
+          mainAxisSpacing: 6,
+          crossAxisSpacing: 6,
+          physics: const NeverScrollableScrollPhysics(),
+          children: [
+            for (var i = 0; i < lead; i++) const SizedBox.shrink(),
+            for (var day = 1; day <= daysInMonth; day++)
+              Builder(builder: (context) {
+                final date = DateTime(today.year, today.month, day);
+                final isDone = h.doneOn(date);
+                final future = date.isAfter(today);
+                return GestureDetector(
+                  onTap: future ? null : () => ref.read(habitsProvider.notifier).toggle(h.id, date),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: isDone ? h.color.withValues(alpha: 0.85) : LifeColors.glass,
+                      borderRadius: BorderRadius.circular(8),
+                      border: sameDay(date, today) ? Border.all(color: Colors.white70) : null,
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      '$day',
+                      style: LifeText.caption.copyWith(
+                        color: isDone ? LifeColors.onLight : (future ? LifeColors.text3.withValues(alpha: 0.4) : LifeColors.text2),
+                      ),
+                    ),
+                  ),
+                );
+              }),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _Stat extends StatelessWidget {
+  const _Stat({required this.label, required this.value, required this.unit});
+
+  final String label;
+  final String value;
+  final String unit;
+
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: LifeText.caption),
+          Text.rich(TextSpan(children: [
+            TextSpan(text: value, style: LifeText.stat),
+            TextSpan(text: ' $unit', style: LifeText.caption),
+          ])),
+        ],
+      );
+}

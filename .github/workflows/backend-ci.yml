@@ -1,0 +1,41 @@
+name: backend-ci
+
+on:
+  push:
+    paths: ["backend/**", ".github/workflows/backend-ci.yml"]
+  pull_request:
+    paths: ["backend/**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lifeos_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - name: Tests (SQLite)
+        run: pytest -q
+      - name: Migrations apply on Postgres
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/lifeos_test
+        run: alembic upgrade head && alembic downgrade base && alembic upgrade head
+      - name: Tests (Postgres)
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/lifeos_test
+        run: pytest -q
