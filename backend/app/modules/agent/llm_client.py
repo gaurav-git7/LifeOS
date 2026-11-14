@@ -62,9 +62,9 @@ class LLMResult[T]:
 
 # Used when a configured model name has been retired (404).
 FALLBACK_MODELS: dict[str, str] = {
-    "lite": "gemini-flash-lite-latest",
-    "default": "gemini-flash-latest",
-    "pro": "gemini-pro-latest",
+    "lite": "gemini-3.8-flash",
+    "default": "gemini-3.8-flash",
+    "pro": "gemini-3.8-flash",
 }
 
 
@@ -177,8 +177,12 @@ async def _gemini(
     try:
         resp = await generate(model)
     except Exception as e:  # noqa: BLE001
-        fallback = FALLBACK_MODELS[tier]
-        if classify(str(e)) != "model" or model == fallback:
+        if classify(str(e)) != "model":
+            raise
+        # Google's 404 usually names the replacement ("use models/gemini-x").
+        suggested = re.search(r"use models/([\w.\-]+)", str(e))
+        fallback = suggested.group(1) if suggested else FALLBACK_MODELS[tier]
+        if fallback == model:
             raise
         log.warning("Model %s unavailable, using %s. Update GEMINI_MODEL_* on Render.", model, fallback)
         resp = await generate(fallback)
