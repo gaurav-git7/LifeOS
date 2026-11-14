@@ -166,6 +166,7 @@ async def chat(db: AsyncSession, user: User, message: str, conversation_id: uuid
                 "key": "The assistant isn't set up correctly on the server (AI key problem).",
                 "model": "The assistant isn't set up correctly on the server (AI model unavailable).",
                 "output": "I got muddled answering that. Could you rephrase it?",
+                "slow": "The AI took too long to answer. Try again, or ask something shorter.",
                 "slow_down": "That's a lot of messages at once. Give me a minute, then try again.",
                 "daily_limit": (
                     f"You've used today's {settings.AI_CALLS_PER_DAY} assistant messages. "

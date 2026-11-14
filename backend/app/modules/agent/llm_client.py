@@ -49,6 +49,8 @@ def classify(error: str) -> str:
         return "quota"  # free-tier / billing limit reached
     if "api key" in e or "api_key" in e or "permission_denied" in e or "401" in e or "403" in e:
         return "key"  # GEMINI_API_KEY missing, wrong or restricted
+    if "timeout" in e or "timed out" in e or "deadline" in e:
+        return "slow"
     if "404" in e or "not_found" in e or "is not found" in e or "not supported" in e:
         return "model"  # model name retired / wrong (GEMINI_MODEL_* on Render)
     return "unavailable"
@@ -144,7 +146,8 @@ async def _gemini(
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    # Stay under the app's 60 s wait: a slow answer becomes a clear message, not a phone timeout.
+    client = genai.Client(api_key=settings.GEMINI_API_KEY, http_options=types.HttpOptions(timeout=45_000))
 
     def config(thinking: bool) -> types.GenerateContentConfig:
         # Thinking costs output tokens; keep it low for the cheap tiers. Gemini 2.x
