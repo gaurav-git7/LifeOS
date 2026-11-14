@@ -29,11 +29,11 @@ services:
       # "-latest" aliases: Google moves them to the newest model (2 weeks' notice),
       # so a retired model name can't break the assistant again.
       - key: GEMINI_MODEL_LITE
-        value: gemini-3.8-flash
+        value: auto
       - key: GEMINI_MODEL_DEFAULT
-        value: gemini-3.8-flash
+        value: auto
       - key: GEMINI_MODEL_PRO
-        value: gemini-3.8-flash
+        value: auto
       - key: JWT_SECRET
         generateValue: true
       - key: JOB_SECRET

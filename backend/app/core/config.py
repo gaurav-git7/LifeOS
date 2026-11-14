@@ -36,9 +36,10 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     # "-latest" aliases follow Google's newest Flash / Flash-Lite / Pro, so a model
     # retirement (like gemini-2.5-flash, Nov 2026) doesn't break the assistant.
-    GEMINI_MODEL_LITE: str = "gemini-3.8-flash"
-    GEMINI_MODEL_DEFAULT: str = "gemini-3.8-flash"
-    GEMINI_MODEL_PRO: str = "gemini-3.8-flash"
+    # "auto" = the first available of llm_client.AUTO_MODELS (fast Flash-Lite first).
+    GEMINI_MODEL_LITE: str = "auto"
+    GEMINI_MODEL_DEFAULT: str = "auto"
+    GEMINI_MODEL_PRO: str = "auto"
     # USD per 1M tokens (input, output), used for the daily budget estimate only.
     # Rough, on the high side; unknown models count at the "flash" price.
     GEMINI_PRICES: dict[str, tuple[float, float]] = Field(

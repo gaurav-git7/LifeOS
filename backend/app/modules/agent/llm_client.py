@@ -62,12 +62,10 @@ class LLMResult[T]:
     call: LlmCall
 
 
-# Used when a configured model name has been retired (404).
-FALLBACK_MODELS: dict[str, str] = {
-    "lite": "gemini-3.8-flash",
-    "default": "gemini-3.8-flash",
-    "pro": "gemini-3.8-flash",
-}
+# Fast models first: chat needs answers in seconds. The first one that exists
+# for this API key is remembered until the server restarts.
+AUTO_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite", "gemini-3.8-flash"]
+_working: dict[str, str] = {}
 
 
 def model_for(tier: Tier) -> str:
@@ -149,14 +147,14 @@ async def _gemini(
     # Stay under the app's 60 s wait: a slow answer becomes a clear message, not a phone timeout.
     client = genai.Client(api_key=settings.GEMINI_API_KEY, http_options=types.HttpOptions(timeout=45_000))
 
-    def config(thinking: bool) -> types.GenerateContentConfig:
+    def config(thinking: bool, name: str) -> types.GenerateContentConfig:
         # Thinking costs output tokens; keep it low for the cheap tiers. Gemini 2.x
         # takes a token budget, Gemini 3+ a level (they can't be combined).
         tc = None
         if thinking and tier != "pro":
             tc = (
                 types.ThinkingConfig(thinking_budget=0)
-                if model.startswith("gemini-2")
+                if name.startswith("gemini-2")
                 else types.ThinkingConfig(thinking_level="low")
             )
         return types.GenerateContentConfig(
@@ -170,25 +168,34 @@ async def _gemini(
 
     async def generate(name: str):
         try:
-            return await client.aio.models.generate_content(model=name, contents=prompt, config=config(True))
+            return await client.aio.models.generate_content(
+                model=name, contents=prompt, config=config(True, name)
+            )
         except Exception as e:  # noqa: BLE001
             if "thinking" not in str(e).lower():
                 raise
             # This model doesn't accept that thinking setting: use its default.
-            return await client.aio.models.generate_content(model=name, contents=prompt, config=config(False))
+            return await client.aio.models.generate_content(
+                model=name, contents=prompt, config=config(False, name)
+            )
 
-    try:
-        resp = await generate(model)
-    except Exception as e:  # noqa: BLE001
-        if classify(str(e)) != "model":
-            raise
-        # Google's 404 usually names the replacement ("use models/gemini-x").
-        suggested = re.search(r"use models/([\w.\-]+)", str(e))
-        fallback = suggested.group(1) if suggested else FALLBACK_MODELS[tier]
-        if fallback == model:
-            raise
-        log.warning("Model %s unavailable, using %s. Update GEMINI_MODEL_* on Render.", model, fallback)
-        resp = await generate(fallback)
+    # A configured name first (unless "auto"), then the fast list; skip names that 404.
+    names = [] if model == "auto" else [model]
+    names += [_working[tier]] if tier in _working else []
+    names += [m for m in AUTO_MODELS if m not in names]
+    last: Exception | None = None
+    for name in names:
+        try:
+            resp = await generate(name)
+            _working[tier] = name
+            break
+        except Exception as e:  # noqa: BLE001
+            if classify(str(e)) != "model":
+                raise
+            log.warning("Gemini model %s unavailable, trying the next one", name)
+            last = e
+    else:
+        raise last or LLMFailed("no model available", "model")
     u = resp.usage_metadata
     return _Raw(
         text=resp.text or "",
