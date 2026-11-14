@@ -12,13 +12,14 @@ from datetime import timedelta
 from sqlalchemy import delete, select
 
 from ..core.database import session_factory
-from ..core.recurrence import is_due_on
+from ..core.recurrence import is_due_on, is_weekly_target
 from ..core.time import local_now, local_today, week_start
 from ..core.types import utcnow
 from ..events.dispatcher import process_event_by_id
 from ..models import (
     ActivityEvent,
     DailySummary,
+    DeviceToken,
     EmailToken,
     Habit,
     HabitLog,
@@ -33,6 +34,7 @@ from ..modules.agent import orchestrator
 from ..modules.agent.proposals import expire_stale
 from ..modules.analytics.service import save_daily_summary
 from ..modules.habits.router import habit_start, recompute_streak
+from ..notifications.push import notify
 
 log = logging.getLogger("lifeos.jobs")
 
@@ -75,6 +77,8 @@ async def daily_summaries() -> int:
                 for h in habits:
                     if not is_due_on(h.recurrence_rule, habit_start(h, user), yesterday):
                         continue
+                    if is_weekly_target(h.recurrence_rule):
+                        continue  # any days of the week count: one day off isn't "missed"
                     logged = await db.scalar(
                         select(HabitLog.id).where(HabitLog.habit_id == h.id, HabitLog.log_date == yesterday)
                     )
@@ -175,3 +179,31 @@ async def cleanup() -> dict:
         "events": r4.rowcount,
         "notifications": r5.rowcount,
     }
+
+
+async def announce_release(version: str, url: str) -> int:
+    """Push "LifeOS <version> is ready" to users with a phone on an older version.
+    Safe to call twice: the dedupe key makes it once per user per version."""
+    sent = 0
+    async with session_factory()() as db:
+        devices = (
+            await db.execute(select(DeviceToken).where(DeviceToken.invalidated_at.is_(None)))
+        ).scalars()
+        behind: set = set()
+        for d in devices:
+            if (d.app_version or "").split("+")[0] != version:
+                behind.add(d.user_id)
+        for user in (await db.execute(select(User).where(User.id.in_(behind)))).scalars():
+            entry = await notify(
+                db,
+                user,
+                "update",
+                f"LifeOS {version} is ready",
+                "Tap to download the update.",
+                dedupe_key=f"release:{version}:{user.id}",
+                data={"url": url},
+            )
+            if entry is not None and entry.status == "sent":
+                sent += 1
+        await db.commit()
+    return sent

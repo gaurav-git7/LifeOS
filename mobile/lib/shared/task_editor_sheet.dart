@@ -5,7 +5,9 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/widgets/widgets.dart';
 import '../data/models.dart';
+import '../data/schedule.dart';
 import '../data/stores.dart';
+import 'schedule_picker.dart';
 
 /// Create or edit a task in a glass sheet.
 Future<void> showTaskEditor(BuildContext context, {Task? task, DateTime? defaultDue}) {
@@ -34,6 +36,7 @@ class _TaskEditorState extends ConsumerState<_TaskEditor> {
   late bool _hasTime = widget.task?.hasTime ?? false;
   late int? _estimate = widget.task?.estimatedMinutes;
   late String? _goalId = widget.task?.goalId;
+  late Schedule _repeat = widget.task?.repeat ?? Schedule.once;
 
   @override
   void dispose() {
@@ -57,6 +60,7 @@ class _TaskEditorState extends ConsumerState<_TaskEditor> {
         hasTime: _hasTime,
         estimatedMinutes: _estimate,
         goalId: _goalId,
+        repeat: _repeat,
       ));
     } else {
       tasks.update(Task(
@@ -72,6 +76,7 @@ class _TaskEditorState extends ConsumerState<_TaskEditor> {
         completedAt: existing.completedAt,
         subtasks: existing.subtasks,
         tags: existing.tags,
+        repeat: _repeat,
       ));
     }
     Navigator.of(context).pop();
@@ -181,6 +186,16 @@ class _TaskEditorState extends ConsumerState<_TaskEditor> {
                   onTap: _pickTime,
                 ),
               ],
+            ),
+            const SizedBox(height: Space.xl),
+            Text('Repeat', style: LifeText.eyebrow),
+            const SizedBox(height: Space.sm),
+            SchedulePicker(
+              value: _repeat,
+              onChanged: (s) => setState(() {
+                _repeat = s;
+                _due ??= dateOnly(DateTime.now()); // a repeating task needs a first date
+              }),
             ),
             const SizedBox(height: Space.xl),
             Text('Estimate', style: LifeText.eyebrow),

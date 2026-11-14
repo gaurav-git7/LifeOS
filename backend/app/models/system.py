@@ -97,3 +97,20 @@ class IdempotencyKey(IdMixin, CreatedMixin, UserOwnedMixin, Base):
     key: Mapped[str] = mapped_column(sa.String(128))
     endpoint: Mapped[str] = mapped_column(sa.String(64))
     response: Mapped[dict] = mapped_column(JSONType, default=dict)
+
+
+class ClientReport(IdMixin, CreatedMixin, UserOwnedMixin, Base):
+    """App crashes and user feedback, sent from the phone. Read them in the
+    Supabase table editor (app.client_reports) or GET /api/v1/admin/reports."""
+
+    __tablename__ = "client_reports"
+    __table_args__ = (sa.Index("ix_client_reports_user_fingerprint", "user_id", "fingerprint"),)
+
+    kind: Mapped[str] = mapped_column(sa.String(12))  # crash|bug|idea|other
+    message: Mapped[str] = mapped_column(sa.Text)
+    details: Mapped[str | None] = mapped_column(sa.Text)  # stack trace / screen
+    app_version: Mapped[str | None] = mapped_column(sa.String(32))
+    fingerprint: Mapped[str | None] = mapped_column(sa.String(64))  # same crash → one row
+    count: Mapped[int] = mapped_column(sa.Integer, default=1)
+    last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    status: Mapped[str] = mapped_column(sa.String(12), default="new")  # new|seen|fixed

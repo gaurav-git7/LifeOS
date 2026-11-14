@@ -30,6 +30,8 @@ CHANNELS = {
     "achievement": "achievements",
     "level_up": "achievements",
     "celebration": "achievements",
+    "update": "updates",
+    "feedback": "updates",
 }
 
 

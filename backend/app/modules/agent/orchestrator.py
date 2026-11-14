@@ -159,8 +159,15 @@ async def chat(db: AsyncSession, user: User, message: str, conversation_id: uuid
                 "I've used today's AI budget, so I can't think this one through right now. "
                 "Everything else in LifeOS still works, and I'll be back tomorrow."
             )
-        except LLMFailed:
-            reply = "I couldn't reach my brain just now. Please try again in a moment."
+        except LLMFailed as e:
+            reply = {
+                "quota": "I've hit the AI usage limit for now. Try again in a little while.",
+                "key": "The assistant isn't set up correctly on the server (AI key problem).",
+                "model": "The assistant isn't set up correctly on the server (AI model unavailable).",
+                "output": "I got muddled answering that. Could you rephrase it?",
+            }.get(e.kind, "I couldn't reach the AI just now. Please try again in a moment.")
+            if user.role == "admin":  # the owner sees the real reason
+                reply += "\n\n[admin] " + f"{e.kind}: {str(e)[:300]}"
 
     assistant = AgentMessage(
         user_id=user.id,

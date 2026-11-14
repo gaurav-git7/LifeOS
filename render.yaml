@@ -26,12 +26,14 @@ services:
         value: LifeOS <onboarding@resend.dev>
       - key: AI_DAILY_BUDGET_USD
         value: "0.10"
+      # "-latest" aliases: Google moves them to the newest model (2 weeks' notice),
+      # so a retired model name can't break the assistant again.
       - key: GEMINI_MODEL_LITE
-        value: gemini-2.5-flash-lite
+        value: gemini-flash-lite-latest
       - key: GEMINI_MODEL_DEFAULT
-        value: gemini-2.5-flash
+        value: gemini-flash-latest
       - key: GEMINI_MODEL_PRO
-        value: gemini-2.5-pro
+        value: gemini-pro-latest
       - key: JWT_SECRET
         generateValue: true
       - key: JOB_SECRET

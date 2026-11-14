@@ -52,6 +52,7 @@ class _Daily extends ConsumerWidget {
     final doneToday = tasks.where((t) => t.done && t.completedAt != null && sameDay(t.completedAt!, now)).toList();
     final overdue = tasks.where((t) => t.isOverdue(now)).toList();
     final habitsDone = habits.where((h) => h.doneOn(now)).length;
+    final habitsDue = habits.where((h) => h.isDueOn(now) || h.doneOn(now)).length;
     final study = learning.minutesOn(now);
     final live = ref.watch(authProvider.select((a) => a.live));
     final review = ref.watch(reviewsProvider);
@@ -104,7 +105,7 @@ class _Daily extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Habits · $habitsDone of ${habits.length}', style: LifeText.title),
+              Text('Habits · $habitsDone of $habitsDue', style: LifeText.title),
               const SizedBox(height: Space.md),
               Row(
                 children: [

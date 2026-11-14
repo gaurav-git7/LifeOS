@@ -1,8 +1,10 @@
 name: release-apk
 
 # Push a tag like v0.1.0 (or run it by hand) to build a signed APK and attach it
-# to a GitHub Release. Needs four repository secrets (see docs/RELEASE.md):
-#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+# to a GitHub Release. Repository secrets (see docs/RELEASE.md):
+#   required: ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+#   optional: GOOGLE_SERVICES_JSON_BASE64 (server push in the APK)
+#             LIFEOS_API_URL + LIFEOS_JOB_SECRET (send "update available" to everyone's phone)
 on:
   push:
     tags: ["v*"]
@@ -42,6 +44,16 @@ jobs:
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/lifeos-release.jks"
           echo "LIFEOS_KEYSTORE_PATH=$RUNNER_TEMP/lifeos-release.jks" >> "$GITHUB_ENV"
 
+      - name: Firebase config (push notifications)
+        env:
+          GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES" ]; then
+            echo "$GOOGLE_SERVICES" | base64 -d > android/app/google-services.json
+          else
+            echo "::warning::GOOGLE_SERVICES_JSON_BASE64 not set: this APK won't receive server push"
+          fi
+
       - name: Version from tag
         run: |
           # v0.2.1 → name 0.2.1, build number = run number (always increases)
@@ -75,3 +87,17 @@ jobs:
         with:
           files: mobile/build/LifeOS-*.apk
           generate_release_notes: true
+
+      - name: Tell phones an update is out
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          API_URL: ${{ secrets.LIFEOS_API_URL }}
+          JOB_SECRET: ${{ secrets.LIFEOS_JOB_SECRET }}
+        working-directory: .
+        run: |
+          if [ -z "$API_URL" ] || [ -z "$JOB_SECRET" ]; then
+            echo "::warning::LIFEOS_API_URL / LIFEOS_JOB_SECRET not set: no update notification sent"; exit 0
+          fi
+          URL="${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
+          # The free server may be asleep: give it time to wake up.
+          curl -fsS --retry 4 --retry-delay 20 --max-time 90 -X POST "$API_URL/internal/jobs/announce-release"             -H "X-Job-Secret: $JOB_SECRET" -H "Content-Type: application/json"             -d "{\"version\": \"$BUILD_NAME\", \"url\": \"$URL\"}"

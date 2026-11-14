@@ -19,7 +19,11 @@ class PlannedReminder {
     required this.route,
     this.channel = ReminderChannel.reminders,
     this.ignoresQuietHours = false,
+    this.subject,
   });
+
+  /// `task:ID` or `habit:ID:YYYY-MM-DD`; gives the notification Done / Snooze buttons.
+  final String? subject;
 
   /// Stable identity, so re-planning replaces instead of duplicating.
   final String key;
@@ -82,6 +86,7 @@ List<PlannedReminder> planReminders({
       body: soon ? 'In 15 minutes' : 'Due now',
       route: Routes.plan,
       ignoresQuietHours: true,
+      subject: 'task:${t.id}',
     ));
   }
 
@@ -111,15 +116,16 @@ List<PlannedReminder> planReminders({
     for (var d = 0; d < 7; d++) {
       final day = today.add(Duration(days: d));
       final when = at(day, r.hour, r.minute);
-      if (!when.isAfter(now) || h.doneOn(day)) continue;
+      if (!when.isAfter(now) || h.doneOn(day) || !h.isDueOn(day)) continue;
       final streak = d == 0 ? h.streak : 0;
       out.add(PlannedReminder(
         key: 'habit:${h.id}:${day.toIso8601String()}',
         at: when,
         title: h.title,
-        body: streak > 1 ? 'Keep your $streak-day streak going' : 'A small step counts',
+        body: streak > 1 ? 'Keep your $streak-${h.streakUnit} streak going' : 'A small step counts',
         route: Routes.plan,
         ignoresQuietHours: true,
+        subject: 'habit:${h.id}:${dateOnly(day).toIso8601String().substring(0, 10)}',
       ));
     }
   }

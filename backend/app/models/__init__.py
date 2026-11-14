@@ -9,6 +9,7 @@ from .progression import Achievement, UserAchievement, XpLedger
 from .system import (
     ActivityEvent,
     AuditLog,
+    ClientReport,
     DailySummary,
     IdempotencyKey,
     NotificationLog,
@@ -24,6 +25,7 @@ __all__ = [
     "AgentMemory",
     "AgentMessage",
     "AuditLog",
+    "ClientReport",
     "DailySummary",
     "DeviceToken",
     "EmailToken",

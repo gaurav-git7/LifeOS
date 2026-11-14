@@ -7,6 +7,12 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// google-services.json is git-ignored (CI writes it from a secret). Without it
+// the app still builds; server push is just off.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 // Release signing: android/key.properties (never committed) or, in CI, env vars.
 // Without either, release builds fall back to the debug key so they still run.
 val keyProps = Properties().apply {

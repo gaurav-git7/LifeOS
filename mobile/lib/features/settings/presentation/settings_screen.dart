@@ -7,7 +7,11 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/routing/routes.dart';
 import '../../../core/widgets/widgets.dart';
+import '../../../data/app_info.dart';
+import '../../../data/export.dart';
+import '../../../data/security/app_lock.dart';
 import '../../../data/stores.dart';
+import '../../../data/telemetry/crash_reporter.dart';
 import '../../../data/reminders/reminder_service.dart';
 import '../../../data/sync/sync_engine.dart';
 
@@ -221,26 +225,41 @@ class SettingsScreen extends ConsumerWidget {
                     title: 'App lock',
                     subtitle: 'Fingerprint when opening LifeOS',
                     value: prefs.appLock,
-                    onChanged: (v) => set((p) => p.copyWith(appLock: v)),
+                    onChanged: (v) => _setLock(context, ref, app: v),
                   ),
                   _SwitchRow(
                     icon: LucideIcons.lockKeyhole,
                     color: LifeColors.rose,
                     title: 'Lock journal',
+                    subtitle: 'Also hidden from recent apps and screenshots',
                     value: prefs.journalLock,
-                    onChanged: (v) => set((p) => p.copyWith(journalLock: v)),
+                    onChanged: (v) => _setLock(context, ref, journal: v),
                   ),
                   _NavRow(
                     icon: LucideIcons.keyRound,
                     color: LifeColors.text2,
                     title: 'Change password',
-                    onTap: () => _toast(context, 'Available once the app is connected to your account.'),
+                    onTap: () => auth.live
+                        ? showGlassSheet<void>(context, title: 'Change password', builder: (_) => const _PasswordForm())
+                        : _toast(context, 'Sign in to an account first.'),
                   ),
                   _NavRow(
                     icon: LucideIcons.monitorSmartphone,
                     color: LifeColors.text2,
                     title: 'Sign out of all devices',
-                    onTap: () => _toast(context, 'Available once the app is connected to your account.'),
+                    onTap: () async {
+                      if (!auth.live) return _toast(context, 'Sign in to an account first.');
+                      final ok = await showGlassConfirm(
+                        context,
+                        title: 'Sign out everywhere?',
+                        message: 'Every phone signed in to your account, including this one, has to sign in again.',
+                        confirmLabel: 'Sign out all',
+                        icon: LucideIcons.monitorSmartphone,
+                      );
+                      if (!ok) return;
+                      final err = await ref.read(authProvider.notifier).signOutEverywhere();
+                      if (err != null && context.mounted) _toast(context, err);
+                    },
                   ),
                 ]),
 
@@ -250,8 +269,13 @@ class SettingsScreen extends ConsumerWidget {
                     icon: LucideIcons.download,
                     color: LifeColors.mint,
                     title: 'Export everything',
-                    trailing: 'JSON',
-                    onTap: () => _toast(context, 'Export starts once the app is connected to your account.'),
+                    trailing: 'JSON + journal',
+                    onTap: () async {
+                      // The export includes the journal: respect its lock.
+                      if (prefs.journalLock && !await ref.read(lockProvider.notifier).authenticate('Export your data')) return;
+                      final err = await exportEverything(ref);
+                      if (err != null && context.mounted) _toast(context, err);
+                    },
                   ),
                   _NavRow(
                     icon: LucideIcons.trash2,
@@ -263,7 +287,14 @@ class SettingsScreen extends ConsumerWidget {
                 ]),
 
                 _Section('About', [
-                  _InfoRow(text: 'LifeOS 0.1.0 · ${auth.live ? 'synced with your account' : 'sample data on this phone'}'),
+                  _InfoRow(text: 'LifeOS $appVersionName · ${auth.live ? 'synced with your account' : 'sample data on this phone'}'),
+                  if (auth.live)
+                    _NavRow(
+                      icon: LucideIcons.messageSquareHeart,
+                      color: LifeColors.rose,
+                      title: 'Send feedback',
+                      onTap: () => showGlassSheet<void>(context, title: 'Send feedback', builder: (_) => const _FeedbackForm()),
+                    ),
                   if (kDebugMode)
                     _NavRow(
                       icon: LucideIcons.layoutGrid,
@@ -287,6 +318,17 @@ class SettingsScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// Changing a lock needs the fingerprint / PIN first, so nobody else can switch it off.
+  Future<void> _setLock(BuildContext context, WidgetRef ref, {bool? app, bool? journal}) async {
+    final lock = ref.read(lockProvider.notifier);
+    if (!await lock.isSupported()) {
+      if (context.mounted) _toast(context, 'Set up a screen lock (fingerprint or PIN) on your phone first.');
+      return;
+    }
+    if (!await lock.authenticate('Confirm it’s you')) return;
+    ref.read(prefsProvider.notifier).update((p) => p.copyWith(appLock: app, journalLock: journal));
   }
 
   void _toast(BuildContext context, String msg) =>
@@ -538,4 +580,129 @@ class _ReminderRows extends ConsumerWidget {
       ],
     );
   }
+}
+
+/// Bug / idea / other → sent to the admin (stored on the server, pushed to your phone).
+class _FeedbackForm extends ConsumerStatefulWidget {
+  const _FeedbackForm();
+
+  @override
+  ConsumerState<_FeedbackForm> createState() => _FeedbackFormState();
+}
+
+class _FeedbackFormState extends ConsumerState<_FeedbackForm> {
+  static const _kinds = ['bug', 'idea', 'other'];
+  static const _labels = ['Something broke', 'Idea', 'Other'];
+  final _text = TextEditingController();
+  int _kind = 0;
+  bool _sending = false;
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    if (_text.text.trim().isEmpty) return;
+    setState(() => _sending = true);
+    final err = await ref.read(crashReporterProvider).sendFeedback(_kinds[_kind], _text.text.trim());
+    if (!mounted) return;
+    setState(() => _sending = false);
+    final messenger = ScaffoldMessenger.of(context);
+    if (err == null) Navigator.of(context).pop();
+    messenger.showSnackBar(SnackBar(content: Text(err ?? 'Thanks! Feedback sent.')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Wrap(
+          spacing: Space.sm,
+          children: [
+            for (var i = 0; i < _kinds.length; i++)
+              GlassChip(data: FilterChipData(_labels[i]), selected: _kind == i, onTap: () => setState(() => _kind = i)),
+          ],
+        ),
+        const SizedBox(height: Space.md),
+        TextField(
+          controller: _text,
+          autofocus: true,
+          minLines: 3,
+          maxLines: 8,
+          maxLength: 4000,
+          decoration: const InputDecoration(hintText: 'What happened, or what would make LifeOS better?'),
+        ),
+        const SizedBox(height: Space.md),
+        ListenableBuilder(
+          listenable: _text,
+          builder: (context, _) => GradientButton(
+            label: 'Send',
+            icon: LucideIcons.send,
+            expand: true,
+            loading: _sending,
+            onPressed: _text.text.trim().isEmpty ? null : _send,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PasswordForm extends ConsumerStatefulWidget {
+  const _PasswordForm();
+
+  @override
+  ConsumerState<_PasswordForm> createState() => _PasswordFormState();
+}
+
+class _PasswordFormState extends ConsumerState<_PasswordForm> {
+  final _current = TextEditingController();
+  final _next = TextEditingController();
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _current.dispose();
+    _next.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_next.text.length < 10) return setState(() => _error = 'Use at least 10 characters.');
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final err = await ref.read(authProvider.notifier).changePassword(_current.text, _next.text);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _error = err;
+    });
+    if (err == null) {
+      final messenger = ScaffoldMessenger.of(context);
+      Navigator.of(context).pop();
+      messenger.showSnackBar(const SnackBar(content: Text('Password changed.')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(controller: _current, obscureText: true, decoration: const InputDecoration(hintText: 'Current password')),
+          const SizedBox(height: Space.md),
+          TextField(controller: _next, obscureText: true, decoration: const InputDecoration(hintText: 'New password (10+ characters)')),
+          if (_error != null) ...[
+            const SizedBox(height: Space.sm),
+            Text(_error!, style: LifeText.caption.copyWith(color: LifeColors.danger)),
+          ],
+          const SizedBox(height: Space.lg),
+          GradientButton(label: 'Change password', expand: true, loading: _busy, onPressed: _save),
+        ],
+      );
 }

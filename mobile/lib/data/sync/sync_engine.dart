@@ -17,6 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/theme/colors.dart';
 import '../api/api_client.dart';
 import '../models.dart';
+import '../schedule.dart';
 import '../stores.dart';
 import '../styles.dart';
 
@@ -79,14 +80,20 @@ class SyncEngine {
       final d = jsonDecode(raw) as Map<String, dynamic>;
       cursor = d['cursor'] as String?;
       final m = d['mirror'] as Map<String, dynamic>;
+      // Changes queued before the cache finished loading (e.g. at app start) are kept.
+      final early = List.of(outbox);
       for (final e in syncEntities) {
+        final keep = {for (final c in early.where((c) => c['entity'] == e)) c['id'] as String: mirror[e]![c['id']]};
         mirror[e] = {
           for (final r in ((m[e] as Map?) ?? {}).entries) r.key as String: Map<String, dynamic>.from(r.value as Map),
+          for (final k in keep.entries)
+            if (k.value != null) k.key: k.value!,
         };
       }
       outbox
         ..clear()
-        ..addAll([for (final c in (d['outbox'] as List? ?? [])) Map<String, dynamic>.from(c as Map)]);
+        ..addAll([for (final c in (d['outbox'] as List? ?? [])) Map<String, dynamic>.from(c as Map)])
+        ..addAll(early);
     } catch (_) {
       // corrupt cache: start fresh
     }
@@ -376,6 +383,7 @@ class SyncEngine {
       completedAt: _parseDt(r['completed_at']),
       subtasks: subtasks,
       tags: [for (final t in (r['tags'] as List? ?? const [])) t as String],
+      repeat: Schedule.fromRRule(r['recurrence_rule'] as String?),
     );
   }
 
@@ -389,6 +397,7 @@ class SyncEngine {
         'goal_id': t.goalId,
         'status': t.done ? 'done' : 'todo',
         'tags': t.tags,
+        'recurrence_rule': t.repeat.toRRule(),
         'project_id': ?projectId,
         'parent_task_id': ?parentId,
       };
@@ -449,6 +458,7 @@ class SyncEngine {
             color: LifeColors.coral,
             startedOn: dateOnly(_parseDt(r['created_at']) ?? DateTime.now()),
             doneDays: done[r['id']] ?? {},
+            schedule: Schedule.fromRRule(r['recurrence_rule'] as String? ?? 'FREQ=DAILY', target: r['target_per_period'] as int? ?? 1),
             reminder: r['reminder_time'] == null
                 ? null
                 : TimeOfDay(

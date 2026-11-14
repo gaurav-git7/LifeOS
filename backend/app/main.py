@@ -17,6 +17,7 @@ from .core.rate_limit import limiter
 from .modules.agent.router import router as agent_router
 from .modules.analytics.router import router as analytics_router
 from .modules.auth.router import router as auth_router
+from .modules.feedback.router import router as feedback_router
 from .modules.goals.router import router as goals_router
 from .modules.habits.router import router as habits_router
 from .modules.journal.router import router as journal_router
@@ -96,6 +97,7 @@ def create_app() -> FastAPI:
         analytics_router,
         agent_router,
         sync_router,
+        feedback_router,
     ):
         api.include_router(r)
     app.include_router(api)

@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/widgets/widgets.dart';
 import '../data/stores.dart';
+import '../data/system_channel.dart';
 import '../data/sync/sync_engine.dart';
 import 'quick_add_sheet.dart';
 import 'xp_overlay.dart';
@@ -24,6 +25,8 @@ class AppShell extends ConsumerWidget {
     final pending = ref.watch(assistantProvider.select((s) => s.pending.length));
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
     final live = ref.watch(authProvider.select((a) => a.live));
+    final journalLock = ref.watch(prefsProvider.select((p) => p.journalLock));
+    SystemChannel.setSecure(journalLock && index == 3); // journal hidden from recents / screenshots
     bool swipe(int dir) {
       final next = index + dir;
       if (next < 0 || next > 4 || keyboardOpen) return false;

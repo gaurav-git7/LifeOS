@@ -3,9 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app/app.dart';
+import 'data/app_info.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await loadAppInfo();
 
   // Draw behind the status and navigation bars; the app handles insets.
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);

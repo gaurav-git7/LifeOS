@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...core.crud import CrudSpec, EntityRead, crud_router, get_owned
 from ...core.deps import DB, CurrentUser
 from ...core.errors import AppError
-from ...core.recurrence import is_due_on, validate_rrule
+from ...core.recurrence import is_due_on, is_weekly_target, validate_rrule
 from ...core.time import local_today, tz
 from ...core.types import utcnow
 from ...events.outbox import commit_and_dispatch, emit
@@ -95,6 +95,21 @@ async def recompute_streak(db: AsyncSession, user: User, habit: Habit) -> int:
         ).scalars()
     }
     start = habit_start(habit, user)
+    if is_weekly_target(habit.recurrence_rule):
+        # "N times a week": streak = consecutive weeks (Mon–Sun) with N done.
+        # The current week only counts once it's met, and never breaks the streak.
+        target = max(habit.target_per_period or 1, 1)
+        streak, wk = 0, today - timedelta(days=today.weekday())
+        while wk + timedelta(days=6) >= max(start, since):
+            done = sum(1 for d, s in logs.items() if s == "done" and wk <= d <= wk + timedelta(days=6))
+            if done >= target:
+                streak += 1
+            elif wk + timedelta(days=6) < today:
+                break
+            wk -= timedelta(days=7)
+        habit.current_streak = streak
+        habit.best_streak = max(habit.best_streak, streak)
+        return streak
     streak, day = 0, today
     while day >= max(start, since):
         if is_due_on(habit.recurrence_rule, start, day):

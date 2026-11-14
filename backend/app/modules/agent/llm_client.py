@@ -35,13 +35,36 @@ class BudgetExceeded(Exception):
 
 
 class LLMFailed(Exception):
-    pass
+    """kind: quota | key | model | output | unavailable (see classify())."""
+
+    def __init__(self, message: str, kind: str = "unavailable"):
+        super().__init__(message)
+        self.kind = kind
+
+
+def classify(error: str) -> str:
+    e = error.lower()
+    if "429" in e or "resource_exhausted" in e or "quota" in e or "rate limit" in e:
+        return "quota"  # free-tier / billing limit reached
+    if "api key" in e or "api_key" in e or "permission_denied" in e or "401" in e or "403" in e:
+        return "key"  # GEMINI_API_KEY missing, wrong or restricted
+    if "404" in e or "not_found" in e or "is not found" in e or "not supported" in e:
+        return "model"  # model name retired / wrong (GEMINI_MODEL_* on Render)
+    return "unavailable"
 
 
 @dataclass
 class LLMResult[T]:
     parsed: T
     call: LlmCall
+
+
+# Used when a configured model name has been retired (404).
+FALLBACK_MODELS: dict[str, str] = {
+    "lite": "gemini-flash-lite-latest",
+    "default": "gemini-flash-latest",
+    "pro": "gemini-pro-latest",
+}
 
 
 def model_for(tier: Tier) -> str:
@@ -53,7 +76,7 @@ def model_for(tier: Tier) -> str:
 
 
 def cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
-    price_in, price_out = settings.GEMINI_PRICES.get(model, (0.0, 0.0))
+    price_in, price_out = settings.GEMINI_PRICES.get(model, (0.50, 3.00))
     return (input_tokens * price_in + output_tokens * price_out) / 1_000_000
 
 
@@ -97,16 +120,43 @@ async def _gemini(
     from google.genai import types
 
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
-    config = types.GenerateContentConfig(
-        system_instruction=system,
-        response_mime_type="application/json",
-        response_schema=schema,
-        temperature=0.4,
-        max_output_tokens=max_tokens,
-        # thinking costs output tokens; keep it off for the cheap tiers
-        thinking_config=types.ThinkingConfig(thinking_budget=0) if tier != "pro" else None,
-    )
-    resp = await client.aio.models.generate_content(model=model, contents=prompt, config=config)
+
+    def config(thinking: bool) -> types.GenerateContentConfig:
+        # Thinking costs output tokens; keep it low for the cheap tiers. Gemini 2.x
+        # takes a token budget, Gemini 3+ a level (they can't be combined).
+        tc = None
+        if thinking and tier != "pro":
+            tc = (
+                types.ThinkingConfig(thinking_budget=0)
+                if model.startswith("gemini-2")
+                else types.ThinkingConfig(thinking_level="low")
+            )
+        return types.GenerateContentConfig(
+            system_instruction=system,
+            response_mime_type="application/json",
+            response_schema=schema,
+            temperature=0.4,
+            max_output_tokens=max_tokens,
+            thinking_config=tc,
+        )
+
+    async def generate(name: str):
+        try:
+            return await client.aio.models.generate_content(model=name, contents=prompt, config=config(True))
+        except Exception as e:  # noqa: BLE001
+            if "thinking" not in str(e).lower():
+                raise
+            # This model doesn't accept that thinking setting: use its default.
+            return await client.aio.models.generate_content(model=name, contents=prompt, config=config(False))
+
+    try:
+        resp = await generate(model)
+    except Exception as e:  # noqa: BLE001
+        fallback = FALLBACK_MODELS[tier]
+        if classify(str(e)) != "model" or model == fallback:
+            raise
+        log.warning("Model %s unavailable, using %s. Update GEMINI_MODEL_* on Render.", model, fallback)
+        resp = await generate(fallback)
     u = resp.usage_metadata
     return _Raw(
         text=resp.text or "",
@@ -233,7 +283,7 @@ async def call_llm[T: BaseModel](
             call.status, call.error = "error", str(e)[:1000]
             call.latency_ms = int((time.perf_counter() - started) * 1000)
             log.exception("LLM call failed")
-            raise LLMFailed(str(e)) from e
+            raise LLMFailed(str(e), classify(str(e))) from e
         call.latency_ms = int((time.perf_counter() - started) * 1000)
         call.input_tokens, call.output_tokens, call.cached_tokens = (
             raw.input_tokens,
@@ -250,4 +300,4 @@ async def call_llm[T: BaseModel](
                 f"{prompt}\n\nYour previous reply was not valid JSON for the schema "
                 f"({last_error}). Reply again with valid JSON only."
             )
-    raise LLMFailed(f"invalid output: {last_error}")
+    raise LLMFailed(f"invalid output: {last_error}", "output")

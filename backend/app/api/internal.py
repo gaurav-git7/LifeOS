@@ -4,6 +4,7 @@ Not part of the public OpenAPI docs. Header: X-Job-Secret: <JOB_SECRET>.
 """
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 
 from ..core.deps import require_job_secret
 from ..events.dispatcher import sweep
@@ -38,6 +39,18 @@ async def weekly_review():
 @router.post("/run-agent-jobs")
 async def run_agent_jobs():
     return {"jobs": await sweep_jobs()}
+
+
+class ReleaseIn(BaseModel):
+    version: str = Field(min_length=1, max_length=32)  # e.g. 0.2.0
+    url: str = Field(min_length=8, max_length=300)  # GitHub release page
+
+
+@router.post("/announce-release")
+async def announce_release(body: ReleaseIn):
+    """Called by the release-apk workflow: push "update available" to every
+    phone that isn't on this version yet."""
+    return {"notified": await scheduled.announce_release(body.version, body.url)}
 
 
 @router.post("/cleanup")

@@ -3,6 +3,8 @@
 
 import 'package:flutter/material.dart';
 
+import 'schedule.dart';
+
 enum Priority { low, medium, high }
 
 enum BlockType { task, study, focus, breakTime, other }
@@ -41,11 +43,13 @@ class Task {
     this.completedAt,
     this.subtasks = const [],
     this.tags = const [],
+    this.repeat = Schedule.once,
   });
 
   final String id;
   final String title;
   final String? description;
+  final Schedule repeat; // repeating task: completing it creates the next one
   final Priority priority;
   final DateTime? due;
   final bool hasTime;
@@ -76,6 +80,7 @@ class Task {
     DateTime? completedAt,
     bool clearCompleted = false,
     List<Subtask>? subtasks,
+    Schedule? repeat,
   }) =>
       Task(
         id: id,
@@ -90,6 +95,7 @@ class Task {
         completedAt: clearCompleted ? null : (completedAt ?? this.completedAt),
         subtasks: subtasks ?? this.subtasks,
         tags: tags,
+        repeat: repeat ?? this.repeat,
       );
 }
 
@@ -156,6 +162,7 @@ class Habit {
     required this.startedOn,
     this.doneDays = const {},
     this.reminder,
+    this.schedule = Schedule.daily,
   });
 
   final String id;
@@ -165,34 +172,72 @@ class Habit {
   final DateTime startedOn;
   final Set<DateTime> doneDays; // date-only
   final TimeOfDay? reminder;
+  final Schedule schedule;
 
   bool doneOn(DateTime day) => doneDays.contains(dateOnly(day));
 
-  /// Consecutive days done, counting back from today (today not done yet doesn't break it).
-  int get streak {
-    var day = dateOnly(DateTime.now());
-    if (!doneDays.contains(day)) day = day.subtract(const Duration(days: 1));
-    var n = 0;
-    while (doneDays.contains(day)) {
-      n++;
-      day = day.subtract(const Duration(days: 1));
-    }
-    return n;
+  static DateTime _weekOf(DateTime d) => dateOnly(d).subtract(Duration(days: d.weekday - 1));
+
+  int doneInWeekOf(DateTime day) {
+    final start = _weekOf(day);
+    return doneDays.where((d) => !d.isBefore(start) && d.isBefore(start.add(const Duration(days: 7)))).length;
   }
 
+  /// Should it show up as "to do" on [day]? ("N× a week" stops once the week's target is met.)
+  bool isDueOn(DateTime day) {
+    if (!schedule.isDueOn(day, startedOn)) return false;
+    if (schedule.countsWeeks) return doneOn(day) || doneInWeekOf(day) < schedule.perWeek;
+    return true;
+  }
+
+  /// "day" or "week" — what [streak] counts.
+  String get streakUnit => schedule.countsWeeks ? 'week' : 'day';
+
+  /// Days (or weeks for "N× a week") in a row on schedule. Today / this week not
+  /// done yet doesn't break it; days the habit isn't scheduled are skipped.
+  int get streak => _runEndingAt(DateTime.now(), allowOpen: true);
+
   int get bestStreak {
-    final days = doneDays.toList()..sort();
-    var best = 0, run = 0;
-    DateTime? prev;
-    for (final d in days) {
-      run = (prev != null && d.difference(prev).inDays == 1) ? run + 1 : 1;
+    var best = 0;
+    final today = dateOnly(DateTime.now());
+    for (var d = dateOnly(startedOn); !d.isAfter(today); d = d.add(Duration(days: schedule.countsWeeks ? 7 : 1))) {
+      final run = _runEndingAt(d, allowOpen: false);
       if (run > best) best = run;
-      prev = d;
     }
     return best;
   }
 
-  Habit copyWith({Set<DateTime>? doneDays, TimeOfDay? reminder, bool clearReminder = false}) => Habit(
+  int _runEndingAt(DateTime end, {required bool allowOpen}) {
+    final start = dateOnly(startedOn).subtract(const Duration(days: 7));
+    var n = 0;
+    if (schedule.countsWeeks) {
+      var wk = _weekOf(end);
+      var first = true;
+      while (!wk.isBefore(_weekOf(start))) {
+        if (doneInWeekOf(wk) >= schedule.perWeek) {
+          n++;
+        } else if (!(first && allowOpen)) {
+          break;
+        }
+        first = false;
+        wk = wk.subtract(const Duration(days: 7));
+      }
+      return n;
+    }
+    final last = dateOnly(end);
+    var day = last;
+    for (var i = 0; i < 800 && !day.isBefore(start); i++, day = day.subtract(const Duration(days: 1))) {
+      if (!schedule.isDueOn(day, startedOn) && !doneOn(day)) continue;
+      if (doneOn(day)) {
+        n++;
+      } else if (!(allowOpen && day == last)) {
+        break; // a scheduled day was missed (today doesn't count yet)
+      }
+    }
+    return n;
+  }
+
+  Habit copyWith({Set<DateTime>? doneDays, TimeOfDay? reminder, bool clearReminder = false, Schedule? schedule}) => Habit(
         id: id,
         title: title,
         icon: icon,
@@ -200,6 +245,7 @@ class Habit {
         startedOn: startedOn,
         doneDays: doneDays ?? this.doneDays,
         reminder: clearReminder ? null : (reminder ?? this.reminder),
+        schedule: schedule ?? this.schedule,
       );
 }
 

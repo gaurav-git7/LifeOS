@@ -23,6 +23,12 @@ def next_after(rule: str, dtstart: datetime, after: datetime) -> datetime | None
     return rrulestr(rule, dtstart=dtstart).after(after)
 
 
+def is_weekly_target(rule: str | None) -> bool:
+    """ "N times a week, any days" (FREQ=WEEKLY without BYDAY + target_per_period)."""
+    upper = (rule or "").upper()
+    return "FREQ=WEEKLY" in upper and "BYDAY" not in upper
+
+
 def is_due_on(rule: str, start: date, day: date) -> bool:
     """Is a habit with this rule (starting on `start`) scheduled on `day`?
 

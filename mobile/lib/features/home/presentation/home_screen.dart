@@ -35,7 +35,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     final today = tasks.where((t) => t.isDueOn(now)).toList();
     final todayDone = today.where((t) => t.done).length;
-    final habitsDone = habits.where((h) => h.doneOn(now)).length;
+    final habitsToday = habits.where((h) => h.isDueOn(now) || h.doneOn(now)).toList();
+    final habitsDone = habitsToday.where((h) => h.doneOn(now)).length;
     final studyMin = learning.minutesOn(now);
 
     final priorities = tasks.where((t) => !t.done && (t.isDueOn(now) || t.isOverdue(now))).toList()
@@ -59,7 +60,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             index: 0,
             child: _TodayCard(
               tasks: (todayDone, today.length),
-              habits: (habitsDone, habits.length),
+              habits: (habitsDone, habitsToday.length),
               studyMinutes: studyMin,
               burst: _burst,
             ),
@@ -180,7 +181,7 @@ class _Header extends ConsumerWidget {
     final pending = ref.read(assistantProvider).pending.length;
     final overdue = ref.read(tasksProvider).where((t) => t.isOverdue(now)).length;
     final habits = ref.read(habitsProvider);
-    final atRisk = habits.where((h) => h.streak > 1 && !h.doneOn(now)).toList()..sort((a, b) => b.streak.compareTo(a.streak));
+    final atRisk = habits.where((h) => h.streak > 1 && h.isDueOn(now) && !h.doneOn(now)).toList()..sort((a, b) => b.streak.compareTo(a.streak));
     final revisions = ref.read(learningProvider).paths.expand((p) => p.topics).where((t) => t.revisionDue).length;
     final recent = ref
         .read(achievementsProvider)
@@ -192,7 +193,7 @@ class _Header extends ConsumerWidget {
         (LucideIcons.sparkles, LifeColors.iris, '$pending suggestion${pending == 1 ? '' : 's'} waiting', 'From your assistant', 'Now'),
       if (overdue > 0) (LucideIcons.clockAlert, LifeColors.danger, '$overdue overdue task${overdue == 1 ? '' : 's'}', 'Reschedule or let them go', 'Today'),
       if (atRisk.isNotEmpty)
-        (LucideIcons.flame, LifeColors.coral, '${atRisk.first.streak}-day ${atRisk.first.title} streak', 'Not done yet today', 'Today'),
+        (LucideIcons.flame, LifeColors.coral, '${atRisk.first.streak}-${atRisk.first.streakUnit} ${atRisk.first.title} streak', 'Not done yet today', 'Today'),
       if (revisions > 0)
         (LucideIcons.repeat, LifeColors.sky, '$revisions topic${revisions == 1 ? '' : 's'} to revise', 'Spaced repetition keeps it fresh', 'Today'),
       for (final a in recent.take(2))
@@ -499,8 +500,8 @@ class _ScheduleSection extends ConsumerWidget {
 class _HabitsSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final habits = ref.watch(habitsProvider);
     final now = DateTime.now();
+    final habits = ref.watch(habitsProvider).where((h) => h.isDueOn(now) || h.doneOn(now)).toList();
     final done = habits.where((h) => h.doneOn(now)).length;
     final best = habits.fold(0, (a, h) => h.streak > a ? h.streak : a);
     final d = Motion.of(context, Motion.check);
@@ -508,7 +509,7 @@ class _HabitsSection extends ConsumerWidget {
       title: 'Habits',
       icon: LucideIcons.flame,
       accent: LifeColors.coral,
-      summary: Text('$done of ${habits.length} · $best-day best streak'),
+      summary: Text(habits.isEmpty ? 'Nothing due today' : '$done of ${habits.length} today · best streak $best'),
       child: Padding(
         padding: const EdgeInsets.only(bottom: Space.sm),
         child: Row(

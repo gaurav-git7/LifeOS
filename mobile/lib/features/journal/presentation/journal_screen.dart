@@ -9,7 +9,9 @@ import '../../../core/widgets/layout/tab_scaffold.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../../data/models.dart';
 import '../../../data/seed.dart';
+import '../../../data/security/app_lock.dart';
 import '../../../data/stores.dart';
+import '../../../shared/lock_views.dart';
 import 'mood_widgets.dart';
 
 /// Calm, personal space. See docs/UI_UX.md §9.4.
@@ -25,6 +27,8 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final locked = ref.watch(prefsProvider.select((p) => p.journalLock)) && !ref.watch(lockProvider.select((l) => l.journalUnlocked));
+    if (locked) return const JournalLockedView();
     final journal = ref.watch(journalProvider);
     final today = dateOnly(DateTime.now());
     final entries = [...journal.entries]..sort((a, b) => b.day.compareTo(a.day));

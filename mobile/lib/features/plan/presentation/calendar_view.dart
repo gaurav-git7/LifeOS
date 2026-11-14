@@ -33,7 +33,7 @@ class _CalendarViewState extends ConsumerState<CalendarView> {
   Widget build(BuildContext context) {
     final tasks = ref.watch(tasksProvider);
     final blocks = ref.watch(scheduleProvider);
-    final habits = ref.watch(habitsProvider).where((h) => !dateOnly(h.startedOn).isAfter(_selected)).toList();
+    final habits = ref.watch(habitsProvider).where((h) => h.isDueOn(_selected) || h.doneOn(_selected)).toList();
     final markers = <DateTime, List<Color>>{};
     for (final t in tasks.where((t) => t.due != null && !t.done)) {
       markers.putIfAbsent(dateOnly(t.due!), () => []).add(t.priority.color);

@@ -9,6 +9,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../../data/models.dart';
 import '../../../data/stores.dart';
+import '../../../data/system_channel.dart';
 
 /// Minimal full-screen editor with autosave. AI access is off unless the
 /// entry is unlocked (lock icon). See docs/UI_UX.md §9.4.
@@ -49,6 +50,7 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     _prompt = existing?.prompt ?? widget.prompt;
     _everSaved = existing != null;
     _journal; // initialise while ref is valid
+    if (ref.read(prefsProvider).journalLock) SystemChannel.setSecure(true); // hide from recents / screenshots
     _title.addListener(_changed);
     _body.addListener(_changed);
   }

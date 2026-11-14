@@ -5,8 +5,10 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/widgets/widgets.dart';
 import '../../../data/models.dart';
+import '../../../data/schedule.dart';
 import '../../../data/stores.dart';
 import '../../../data/styles.dart';
+import '../../../shared/schedule_picker.dart';
 
 /// Habits tab: 7-day dot rows (tap any day), streaks, month heat-map in detail.
 class HabitsView extends ConsumerWidget {
@@ -48,7 +50,13 @@ class HabitsView extends ConsumerWidget {
                                   children: [
                                     const Icon(LucideIcons.flame, size: 13, color: LifeColors.amber),
                                     const SizedBox(width: 3),
-                                    Text('${h.streak}-day streak', style: LifeText.mono),
+                                    Flexible(
+                                      child: Text(
+                                        '${h.streak}-${h.streakUnit} streak · ${h.schedule.label}',
+                                        style: LifeText.mono,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ],
@@ -137,6 +145,7 @@ class HabitsView extends ConsumerWidget {
   void _newHabit(BuildContext context, WidgetRef ref) {
     final c = TextEditingController();
     TimeOfDay? remind;
+    var schedule = Schedule.daily;
     showGlassSheet<void>(
       context,
       title: 'New habit',
@@ -145,6 +154,8 @@ class HabitsView extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             TextField(controller: c, autofocus: true, decoration: const InputDecoration(hintText: 'e.g. Meditate 10 minutes')),
+            const SizedBox(height: Space.md),
+            SchedulePicker(forHabit: true, value: schedule, onChanged: (s) => setSheet(() => schedule = s)),
             const SizedBox(height: Space.md),
             ReminderTimeRow(
               time: remind,
@@ -163,6 +174,7 @@ class HabitsView extends ConsumerWidget {
                       color: LifeColors.coral,
                       startedOn: dateOnly(DateTime.now()),
                       reminder: remind,
+                      schedule: schedule,
                     ));
                 Navigator.of(sheet).pop();
               },
@@ -187,7 +199,16 @@ class _HabitDetail extends ConsumerWidget {
     final daysInMonth = DateTime(today.year, today.month + 1, 0).day;
     final lead = first.weekday - 1;
     final done = h.doneDays.where((d) => d.month == today.month && d.year == today.year).length;
-    final pct = (done / today.day * 100).round();
+    // Share of this month's scheduled days (so far) that were done.
+    final dueSoFar = [
+      for (var day = 1; day <= today.day; day++)
+        if (h.schedule.isDueOn(DateTime(today.year, today.month, day), h.startedOn)) day,
+    ].length;
+    final pct = h.schedule.countsWeeks
+        ? (done / ((today.day / 7) * h.schedule.perWeek).clamp(1, 31) * 100).round().clamp(0, 100)
+        : dueSoFar == 0
+            ? 0
+            : (done / dueSoFar * 100).round().clamp(0, 100);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -202,12 +223,39 @@ class _HabitDetail extends ConsumerWidget {
         const SizedBox(height: Space.xl),
         Row(
           children: [
-            Expanded(child: _Stat(label: 'Current streak', value: '${h.streak}', unit: 'days')),
-            Expanded(child: _Stat(label: 'Best streak', value: '${h.bestStreak}', unit: 'days')),
+            Expanded(child: _Stat(label: 'Current streak', value: '${h.streak}', unit: '${h.streakUnit}s')),
+            Expanded(child: _Stat(label: 'Best streak', value: '${h.bestStreak}', unit: '${h.streakUnit}s')),
             Expanded(child: _Stat(label: 'This month', value: '$pct', unit: '%')),
           ],
         ),
         const SizedBox(height: Space.lg),
+        GlassCard(
+          padding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.md),
+          onTap: () => showGlassSheet<void>(
+            context,
+            title: 'How often?',
+            builder: (_) => Consumer(
+              builder: (context, ref, _) {
+                final cur = ref.watch(habitsProvider).where((x) => x.id == h.id).firstOrNull;
+                if (cur == null) return const SizedBox.shrink();
+                return SchedulePicker(
+                  forHabit: true,
+                  value: cur.schedule,
+                  onChanged: (s) => ref.read(habitsProvider.notifier).setSchedule(h.id, s),
+                );
+              },
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(LucideIcons.repeat, size: 18, color: LifeColors.lilac),
+              const SizedBox(width: Space.md),
+              Expanded(child: Text(h.schedule.label, style: LifeText.body)),
+              Text('Change', style: LifeText.label.copyWith(color: LifeColors.lilac)),
+            ],
+          ),
+        ),
+        const SizedBox(height: Space.sm),
         ReminderTimeRow(time: h.reminder, onChanged: (t) => ref.read(habitsProvider.notifier).setReminder(h.id, t)),
         const SizedBox(height: Space.lg),
         Text(DateFormat('MMMM yyyy').format(today), style: LifeText.eyebrow),

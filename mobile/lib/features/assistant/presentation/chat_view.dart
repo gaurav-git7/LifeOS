@@ -188,8 +188,10 @@ class _Bubble extends StatelessWidget {
       child: user
           ? Container(
               padding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.md),
+              // Same white-on-dark as primary buttons and selected states elsewhere.
               decoration: const BoxDecoration(
-                color: LifeColors.iris,
+                color: Color(0xF2FFFFFF),
+                boxShadow: LifeShadows.float,
                 borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(20),
                   topRight: Radius.circular(20),
@@ -197,7 +199,7 @@ class _Bubble extends StatelessWidget {
                   bottomRight: Radius.circular(6),
                 ),
               ),
-              child: Text(message.text, style: LifeText.body.copyWith(color: Colors.white)),
+              child: Text(message.text, style: LifeText.body.copyWith(color: LifeColors.onLight)),
             )
           : GlassCard(
               radius: 20,

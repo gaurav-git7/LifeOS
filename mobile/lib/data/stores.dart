@@ -22,6 +22,8 @@ import '../shell/quick_capture_parser.dart';
 import 'api/api_client.dart';
 import 'models.dart';
 import 'seed.dart';
+import 'push/push_service.dart';
+import 'schedule.dart';
 import 'sync/sync_engine.dart';
 
 const _uuid = Uuid();
@@ -273,6 +275,7 @@ class AuthNotifier extends Notifier<AuthState> {
 
   Future<void> signOut() async {
     if (state.live) {
+      await ref.read(pushServiceProvider).unregister(); // no more pushes for this account here
       final tokens = ref.read(tokenStoreProvider);
       final refresh = await tokens.refresh;
       final sync = ref.read(syncEngineProvider);
@@ -290,6 +293,34 @@ class AuthNotifier extends Notifier<AuthState> {
     state = AuthState(status: AuthStatus.signedOut, onboarded: true, email: state.email);
     await _saveMode(null);
     _resetData();
+  }
+
+  /// Returns an error message or null.
+  Future<String?> changePassword(String current, String next) async {
+    try {
+      await _api.post<dynamic>('/auth/change-password', data: {'current_password': current, 'new_password': next});
+      return null;
+    } on ApiException catch (e) {
+      return e.message;
+    }
+  }
+
+  /// Ends every session (all phones), including this one. Returns an error message or null.
+  Future<String?> signOutEverywhere() async {
+    final sync = ref.read(syncEngineProvider);
+    await sync.push().timeout(const Duration(seconds: 5), onTimeout: () {});
+    await ref.read(pushServiceProvider).unregister();
+    try {
+      await _api.post<dynamic>('/auth/logout-all');
+    } on ApiException catch (e) {
+      return e.message;
+    }
+    await ref.read(tokenStoreProvider).clear();
+    await sync.clear();
+    state = AuthState(status: AuthStatus.signedOut, onboarded: true, email: state.email);
+    await _saveMode(null);
+    _resetData();
+    return null;
   }
 
   /// Permanently deletes the account on the server. Returns an error message or null.
@@ -407,13 +438,21 @@ TimeOfDay? _tod(Object? v) =>
 
 class PrefsNotifier extends Notifier<Prefs> {
   static const _studyGoalKey = 'lifeos_study_goal';
+  // Locks are about this phone, so they're kept here, not on the server.
+  static const _appLockKey = 'lifeos_app_lock';
+  static const _journalLockKey = 'lifeos_journal_lock';
 
   @override
   Prefs build() {
     Future.microtask(() async {
       try {
-        final v = (await SharedPreferences.getInstance()).getInt(_studyGoalKey);
-        if (v != null && ref.mounted) state = state.copyWith(studyGoalMinutes: v);
+        final p = await SharedPreferences.getInstance();
+        if (!ref.mounted) return;
+        state = state.copyWith(
+          studyGoalMinutes: p.getInt(_studyGoalKey),
+          appLock: p.getBool(_appLockKey),
+          journalLock: p.getBool(_journalLockKey),
+        );
       } catch (_) {}
     });
     return const Prefs();
@@ -437,6 +476,13 @@ class PrefsNotifier extends Notifier<Prefs> {
     final before = _toApi(state);
     final goalBefore = state.studyGoalMinutes;
     state = f(state);
+    final locks = (state.appLock, state.journalLock);
+    unawaited(SharedPreferences.getInstance()
+        .then((p) async {
+          await p.setBool(_appLockKey, locks.$1);
+          await p.setBool(_journalLockKey, locks.$2);
+        })
+        .then<void>((_) {}, onError: (_) {}));
     if (state.studyGoalMinutes != goalBefore) {
       final v = state.studyGoalMinutes;
       unawaited(SharedPreferences.getInstance().then((p) => p.setInt(_studyGoalKey, v)).then<void>((_) {}, onError: (_) {}));
@@ -627,6 +673,22 @@ class TasksNotifier extends Notifier<List<Task>> {
     }
     update(t.copyWith(done: true, completedAt: DateTime.now()));
     xp.award(t.priority.xp);
+    // Repeating task: the next one appears (the server does this in live mode).
+    final next = t.due == null ? null : t.repeat.nextAfter(t.due!);
+    if (next != null && liveSync(ref) == null) {
+      add(Task(
+        id: newId(),
+        title: t.title,
+        description: t.description,
+        priority: t.priority,
+        due: next,
+        hasTime: t.hasTime,
+        estimatedMinutes: t.estimatedMinutes,
+        goalId: t.goalId,
+        tags: t.tags,
+        repeat: t.repeat,
+      ));
+    }
     return t.priority.xp;
   }
 
@@ -734,7 +796,14 @@ class HabitsNotifier extends Notifier<List<Habit>> {
     liveSync(ref)?.queue('habits', h.id, {
       'title': h.title,
       'reminder_time': h.reminder == null ? null : _hhmm(h.reminder!),
+      'recurrence_rule': h.schedule.toRRule() ?? 'FREQ=DAILY',
+      'target_per_period': h.schedule.target,
     });
+  }
+
+  void setSchedule(String id, Schedule s) {
+    state = [for (final h in state) h.id == id ? h.copyWith(schedule: s) : h];
+    liveSync(ref)?.queue('habits', id, {'recurrence_rule': s.toRRule() ?? 'FREQ=DAILY', 'target_per_period': s.target});
   }
 
   /// null clears the reminder.
