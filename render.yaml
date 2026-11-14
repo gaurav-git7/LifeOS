@@ -17,14 +17,13 @@ services:
         value: invite
       - key: DB_SCHEMA
         value: app
-      # Email via Gmail SMTP (needs 2-Step Verification + an App password).
-      # User, password and From address are entered in the Render dashboard (sync: false below).
+      # Email via Resend's HTTPS API. (Render's free plan blocks outgoing SMTP
+      # ports 25/465/587, so Gmail SMTP can't connect from here.)
+      # Without a verified domain, Resend only delivers to your Resend account email.
       - key: EMAIL_PROVIDER
-        value: smtp
-      - key: SMTP_HOST
-        value: smtp.gmail.com
-      - key: SMTP_PORT
-        value: "587"
+        value: resend
+      - key: EMAIL_FROM
+        value: LifeOS <onboarding@resend.dev>
       - key: AI_DAILY_BUDGET_USD
         value: "0.10"
       - key: GEMINI_MODEL_LITE
@@ -45,9 +44,5 @@ services:
         sync: false
       - key: FIREBASE_CREDENTIALS_JSON
         sync: false
-      - key: SMTP_USER         # your Gmail address, e.g. you@gmail.com
-        sync: false
-      - key: SMTP_PASSWORD     # the 16-character Gmail App password (NOT your normal password)
-        sync: false
-      - key: EMAIL_FROM        # e.g. LifeOS <you@gmail.com> — must be the same Gmail address
+      - key: RESEND_API_KEY    # from resend.com → API Keys (starts with re_)
         sync: false

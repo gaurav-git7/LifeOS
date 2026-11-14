@@ -13,10 +13,13 @@ jobs:
       run:
         working-directory: mobile
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          # Pinned to the version used locally so CI and `flutter analyze` on your
+          # machine agree. Bump both together when you upgrade Flutter.
+          flutter-version: 3.38.5
           cache: true
       - run: flutter pub get
       - run: flutter analyze
