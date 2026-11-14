@@ -8,6 +8,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../core/routing/routes.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../../data/stores.dart';
+import '../../../data/reminders/reminder_service.dart';
 import '../../../data/sync/sync_engine.dart';
 
 /// Settings. See docs/UI_UX.md §9.6.
@@ -75,8 +76,12 @@ class SettingsScreen extends ConsumerWidget {
                     color: LifeColors.coral,
                     title: 'Notifications',
                     value: prefs.notifications,
-                    onChanged: (v) => set((p) => p.copyWith(notifications: v)),
+                    onChanged: (v) {
+                      set((p) => p.copyWith(notifications: v));
+                      if (v) ref.read(reminderServiceProvider).requestPermission();
+                    },
                   ),
+                  if (prefs.notifications) const _ReminderRows(),
                   _SwitchRow(
                     icon: LucideIcons.sunset,
                     color: LifeColors.amber,
@@ -107,7 +112,7 @@ class SettingsScreen extends ConsumerWidget {
                     icon: LucideIcons.moon,
                     color: LifeColors.iris,
                     title: 'Quiet hours',
-                    subtitle: '23:00 – 07:00',
+                    subtitle: '22:30 – 07:00 · task and habit times still ring',
                     value: prefs.quietHours,
                     onChanged: (v) => set((p) => p.copyWith(quietHours: v)),
                   ),
@@ -465,6 +470,50 @@ class _SyncRow extends ConsumerWidget {
       title: 'Sync now',
       trailing: status,
       onTap: () => ref.read(syncEngineProvider).syncNow(),
+    );
+  }
+}
+
+/// Permission state, exact timing and a test button for phone reminders.
+class _ReminderRows extends ConsumerWidget {
+  const _ReminderRows();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(reminderStatusProvider);
+    final service = ref.read(reminderServiceProvider);
+    return Column(
+      children: [
+        if (s.permitted == false)
+          _NavRow(
+            icon: LucideIcons.bellOff,
+            color: LifeColors.danger,
+            title: 'Notifications are blocked',
+            trailing: 'Allow',
+            onTap: () async {
+              final ok = await service.requestPermission();
+              if (!ok && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content: Text('Turn them on in Android Settings → Apps → LifeOS → Notifications.'),
+                ));
+              }
+            },
+          ),
+        _NavRow(
+          icon: LucideIcons.alarmClock,
+          color: LifeColors.amber,
+          title: 'On-the-minute reminders',
+          trailing: s.exact == true ? 'On' : 'Turn on',
+          onTap: service.requestExact,
+        ),
+        _NavRow(
+          icon: LucideIcons.bellRing,
+          color: LifeColors.lilac,
+          title: 'Send a test notification',
+          trailing: s.scheduled > 0 ? '${s.scheduled} planned' : null,
+          onTap: service.test,
+        ),
+      ],
     );
   }
 }

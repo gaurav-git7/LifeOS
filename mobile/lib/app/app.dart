@@ -5,6 +5,7 @@ import '../core/motion/motion.dart';
 import '../core/routing/router.dart';
 import '../core/theme/app_theme.dart';
 import '../data/stores.dart';
+import '../data/reminders/reminder_service.dart';
 import '../data/sync/sync_engine.dart';
 
 class LifeOSApp extends ConsumerStatefulWidget {
@@ -21,6 +22,15 @@ class _LifeOSAppState extends ConsumerState<LifeOSApp> with WidgetsBindingObserv
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Phone reminders (no-op in tests). Ask for notification permission when someone signs in.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final reminders = ref.read(reminderServiceProvider);
+      await reminders.start();
+      if (ref.read(authProvider).signedIn) await reminders.requestPermission();
+    });
+    ref.listenManual(authProvider.select((a) => a.signedIn), (was, now) {
+      if (now && was == false) ref.read(reminderServiceProvider).requestPermission();
+    });
   }
 
   @override
@@ -31,6 +41,8 @@ class _LifeOSAppState extends ConsumerState<LifeOSApp> with WidgetsBindingObserv
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // A new day may have started: re-plan reminders (cheap, local).
+    if (state == AppLifecycleState.resumed) ref.read(reminderServiceProvider).schedule();
     // Coming back to the app: pick up changes made elsewhere (e.g. approved from a review).
     if (state != AppLifecycleState.resumed || !ref.read(authProvider).live) return;
     if (DateTime.now().difference(_lastSync) < const Duration(seconds: 30)) return;

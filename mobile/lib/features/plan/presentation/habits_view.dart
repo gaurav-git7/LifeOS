@@ -6,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../../data/models.dart';
 import '../../../data/stores.dart';
+import '../../../data/styles.dart';
 
 /// Habits tab: 7-day dot rows (tap any day), streaks, month heat-map in detail.
 class HabitsView extends ConsumerWidget {
@@ -135,30 +136,39 @@ class HabitsView extends ConsumerWidget {
 
   void _newHabit(BuildContext context, WidgetRef ref) {
     final c = TextEditingController();
+    TimeOfDay? remind;
     showGlassSheet<void>(
       context,
       title: 'New habit',
-      builder: (sheet) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TextField(controller: c, autofocus: true, decoration: const InputDecoration(hintText: 'e.g. Meditate 10 minutes')),
-          const SizedBox(height: Space.lg),
-          GradientButton(
-            label: 'Start habit',
-            expand: true,
-            onPressed: () {
-              if (c.text.trim().isEmpty) return;
-              ref.read(habitsProvider.notifier).add(Habit(
-                    id: newId(),
-                    title: c.text.trim(),
-                    icon: LucideIcons.sparkle,
-                    color: LifeColors.coral,
-                    startedOn: dateOnly(DateTime.now()),
-                  ));
-              Navigator.of(sheet).pop();
-            },
-          ),
-        ],
+      builder: (sheet) => StatefulBuilder(
+        builder: (sheet, setSheet) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(controller: c, autofocus: true, decoration: const InputDecoration(hintText: 'e.g. Meditate 10 minutes')),
+            const SizedBox(height: Space.md),
+            ReminderTimeRow(
+              time: remind,
+              onChanged: (t) => setSheet(() => remind = t),
+            ),
+            const SizedBox(height: Space.lg),
+            GradientButton(
+              label: 'Start habit',
+              expand: true,
+              onPressed: () {
+                if (c.text.trim().isEmpty) return;
+                ref.read(habitsProvider.notifier).add(Habit(
+                      id: newId(),
+                      title: c.text.trim(),
+                      icon: habitIcon(c.text.trim()),
+                      color: LifeColors.coral,
+                      startedOn: dateOnly(DateTime.now()),
+                      reminder: remind,
+                    ));
+                Navigator.of(sheet).pop();
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -197,7 +207,9 @@ class _HabitDetail extends ConsumerWidget {
             Expanded(child: _Stat(label: 'This month', value: '$pct', unit: '%')),
           ],
         ),
-        const SizedBox(height: Space.xl),
+        const SizedBox(height: Space.lg),
+        ReminderTimeRow(time: h.reminder, onChanged: (t) => ref.read(habitsProvider.notifier).setReminder(h.id, t)),
+        const SizedBox(height: Space.lg),
         Text(DateFormat('MMMM yyyy').format(today), style: LifeText.eyebrow),
         const SizedBox(height: Space.md),
         GridView.count(
@@ -256,4 +268,44 @@ class _Stat extends StatelessWidget {
           ])),
         ],
       );
+}
+
+/// "Remind me at …" with a time picker and a clear button.
+class ReminderTimeRow extends StatelessWidget {
+  const ReminderTimeRow({super.key, required this.time, required this.onChanged});
+
+  final TimeOfDay? time;
+  final ValueChanged<TimeOfDay?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      padding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.sm),
+      onTap: () async {
+        final t = await showTimePicker(context: context, initialTime: time ?? const TimeOfDay(hour: 8, minute: 0));
+        if (t != null) onChanged(t);
+      },
+      child: Row(
+        children: [
+          Icon(time == null ? LucideIcons.bellOff : LucideIcons.bellRing, size: 18, color: time == null ? LifeColors.text3 : LifeColors.coral),
+          const SizedBox(width: Space.md),
+          Expanded(
+            child: Text(
+              time == null ? 'No reminder' : 'Remind me at ${time!.format(context)}',
+              style: LifeText.body,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (time != null)
+            IconButton(
+              tooltip: 'Remove reminder',
+              icon: const Icon(LucideIcons.x, size: 16, color: LifeColors.text3),
+              onPressed: () => onChanged(null),
+            )
+          else
+            Text('Set', style: LifeText.label.copyWith(color: LifeColors.lilac)),
+        ],
+      ),
+    );
+  }
 }

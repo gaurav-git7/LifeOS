@@ -260,6 +260,12 @@ Check the app's data layer against a real backend (creates a throwaway account a
 LIFEOS_LIVE_API=http://127.0.0.1:8000/api/v1 flutter test test/live_backend_test.dart
 ```
 
+## 11. Install a release build and turn on reminders
+
+See [RELEASE.md](RELEASE.md): create your signing key once, build or download the APK, and allow
+notifications so phone reminders work.
+
 ## What's next
 
-Push notifications (FCM token registration) and a release APK.
+Server push notifications through Firebase (step 4), for things that happen while the app is closed,
+like the daily review being ready.

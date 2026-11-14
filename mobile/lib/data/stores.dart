@@ -717,6 +717,12 @@ class HabitsNotifier extends Notifier<List<Habit>> {
     });
   }
 
+  /// null clears the reminder.
+  void setReminder(String id, TimeOfDay? time) {
+    state = [for (final h in state) h.id == id ? h.copyWith(reminder: time, clearReminder: time == null) : h];
+    liveSync(ref)?.queue('habits', id, {'reminder_time': time == null ? null : _hhmm(time)});
+  }
+
   void toggle(String id, [DateTime? day]) {
     final d = dateOnly(day ?? DateTime.now());
     state = [

@@ -192,14 +192,14 @@ class Habit {
     return best;
   }
 
-  Habit copyWith({Set<DateTime>? doneDays}) => Habit(
+  Habit copyWith({Set<DateTime>? doneDays, TimeOfDay? reminder, bool clearReminder = false}) => Habit(
         id: id,
         title: title,
         icon: icon,
         color: color,
         startedOn: startedOn,
         doneDays: doneDays ?? this.doneDays,
-        reminder: reminder,
+        reminder: clearReminder ? null : (reminder ?? this.reminder),
       );
 }
 
