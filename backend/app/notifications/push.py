@@ -32,6 +32,7 @@ CHANNELS = {
     "celebration": "achievements",
     "update": "updates",
     "feedback": "updates",
+    "social": "social",
 }
 
 

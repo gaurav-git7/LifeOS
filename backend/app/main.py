@@ -25,6 +25,7 @@ from .modules.learning.router import router as learning_router
 from .modules.planner.router import router as planner_router
 from .modules.progression.router import router as progression_router
 from .modules.progression.service import ensure_catalog
+from .modules.social.router import router as social_router
 from .modules.sync.router import router as sync_router
 from .modules.tasks.router import router as tasks_router
 from .modules.users.router import router as users_router
@@ -98,6 +99,7 @@ def create_app() -> FastAPI:
         agent_router,
         sync_router,
         feedback_router,
+        social_router,
     ):
         api.include_router(r)
     app.include_router(api)

@@ -157,3 +157,16 @@ After installing:
 3. Samsung only: Android Settings → Apps → LifeOS → Battery → **Unrestricted**. Otherwise One UI
    can delay or drop reminders when the phone is idle.
 4. Settings → **Send a test notification** to check.
+
+## Friends, groups and the home-screen widget
+
+- **Friends:** Home → 👥 → share your friend code; a friend adds it and you accept. Friends only see
+  habits you switch to *Share with friends* (habit details): the name, streak and whether it's done
+  today. Tasks, goals, journal, mood and the assistant are never shared. Cheer (🔥 👏 💪) or nudge
+  (once a day) from their card; both send a push.
+- **Groups:** Friends → Groups → *New group*, add a habit (any schedule), share the code. Everyone
+  checks in on their own phone; group habits also show in Plan → Habits. Group streak: everyone does
+  it, with one free miss per week for the group ("N× a week" habits count weeks where everyone hit N).
+  When the whole group finishes a day, everyone gets a 🎉 push.
+- **Widget:** long-press the home screen → Widgets → LifeOS → *Today*. It shows today's rings and top
+  3 tasks, updates when your data changes, opens the app on tap, and **+** opens quick add.

@@ -5,12 +5,14 @@ import '../core/motion/motion.dart';
 import '../core/routing/router.dart';
 import '../core/theme/app_theme.dart';
 import '../data/stores.dart';
+import '../data/social/social_store.dart';
 import '../data/focus/focus_controller.dart';
 import '../data/push/push_service.dart';
 import '../data/reminders/reminder_service.dart';
 import '../data/security/app_lock.dart';
 import '../shared/lock_views.dart';
 import '../data/telemetry/crash_reporter.dart';
+import '../data/widget/home_widget_service.dart';
 import '../data/sync/sync_engine.dart';
 
 class LifeOSApp extends ConsumerStatefulWidget {
@@ -33,6 +35,7 @@ class _LifeOSAppState extends ConsumerState<LifeOSApp> with WidgetsBindingObserv
       final reminders = ref.read(reminderServiceProvider);
       await reminders.start();
       await ref.read(pushServiceProvider).start(); // server push; after reminders (shares channels)
+      await ref.read(homeWidgetProvider).start(); // home-screen "Today" widget
       if (ref.read(authProvider).signedIn) await reminders.requestPermission();
     });
     ref.listenManual(authProvider.select((a) => a.signedIn), (was, now) {
@@ -61,6 +64,7 @@ class _LifeOSAppState extends ConsumerState<LifeOSApp> with WidgetsBindingObserv
     if (state == AppLifecycleState.resumed) {
       ref.read(reminderServiceProvider).applyPendingActions(); // Done/Tomorrow pressed while closed
       ref.read(reminderServiceProvider).schedule();
+      ref.read(homeWidgetProvider).refresh(); // new day → fresh widget
     }
     // Coming back to the app: pick up changes made elsewhere (e.g. approved from a review).
     if (state != AppLifecycleState.resumed || !ref.read(authProvider).live) return;
@@ -68,6 +72,7 @@ class _LifeOSAppState extends ConsumerState<LifeOSApp> with WidgetsBindingObserv
     _lastSync = DateTime.now();
     ref.read(syncEngineProvider).syncNow();
     ref.read(assistantProvider.notifier).load();
+    ref.read(socialProvider.notifier).load();
   }
 
   @override

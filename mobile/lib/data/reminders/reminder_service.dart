@@ -71,6 +71,7 @@ class ReminderService {
     AndroidNotificationChannel('agent', 'Assistant', description: 'New suggestions from the assistant'),
     AndroidNotificationChannel('achievements', 'Achievements', description: 'Level-ups and badges'),
     AndroidNotificationChannel('updates', 'App updates & feedback', description: 'New versions of LifeOS'),
+    AndroidNotificationChannel('social', 'Friends & groups', description: 'Cheers, nudges and friend requests'),
     AndroidNotificationChannel(
       'focus',
       'Focus timer',
@@ -242,7 +243,7 @@ class ReminderService {
     } else if (target == '${Routes.assistant}?tab=suggestions') {
       ref.read(assistantTabProvider.notifier).set(2);
       router.go(Routes.assistant);
-    } else if (target == Routes.achievements) {
+    } else if (target == Routes.achievements || target.startsWith(Routes.friends)) {
       router.push(target);
     } else {
       router.go(target);

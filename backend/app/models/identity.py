@@ -24,6 +24,7 @@ class User(IdMixin, CreatedMixin, Base):
     last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     token_version: Mapped[int] = mapped_column(sa.Integer, default=0)  # bump = log out everywhere
     total_xp: Mapped[int] = mapped_column(sa.Integer, default=0)
+    friend_code: Mapped[str | None] = mapped_column(sa.String(12), unique=True)  # share to be added
     level: Mapped[int] = mapped_column(sa.SmallInteger, default=1)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 

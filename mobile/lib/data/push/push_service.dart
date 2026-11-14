@@ -40,6 +40,7 @@ class PushService {
       'review' => reviewRoute,
       'proposal' || 'agent_job' => '${Routes.assistant}?tab=suggestions',
       'achievement' || 'level_up' || 'celebration' => Routes.achievements,
+      'social' => Routes.friends,
       _ => null,
     };
   }

@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/widgets/widgets.dart';
 import '../data/stores.dart';
+import '../data/social/social_store.dart';
 import '../data/system_channel.dart';
 import '../data/sync/sync_engine.dart';
 import 'quick_add_sheet.dart';
@@ -50,6 +51,7 @@ class AppShell extends ConsumerWidget {
                     onRefresh: () async {
                       await ref.read(syncEngineProvider).syncNow();
                       await ref.read(assistantProvider.notifier).load();
+                      await ref.read(socialProvider.notifier).load();
                     },
                     child: SwipeNav(onSwipe: swipe, child: shell),
                   )

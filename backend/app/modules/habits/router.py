@@ -31,6 +31,7 @@ class HabitBase(BaseModel):
     color: str | None = Field(default=None, max_length=16)
     icon: str | None = Field(default=None, max_length=32)
     active: bool = True
+    visibility: Literal["private", "friends"] = "private"
 
     @field_validator("recurrence_rule")
     @classmethod
@@ -51,6 +52,7 @@ class HabitUpdate(BaseModel):
     color: str | None = None
     icon: str | None = None
     active: bool | None = None
+    visibility: Literal["private", "friends"] | None = None
 
     @field_validator("recurrence_rule")
     @classmethod

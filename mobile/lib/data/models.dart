@@ -163,10 +163,12 @@ class Habit {
     this.doneDays = const {},
     this.reminder,
     this.schedule = Schedule.daily,
+    this.shared = false,
   });
 
   final String id;
   final String title;
+  final bool shared; // friends see its title, streak and today's status
   final IconData icon;
   final Color color;
   final DateTime startedOn;
@@ -237,7 +239,8 @@ class Habit {
     return n;
   }
 
-  Habit copyWith({Set<DateTime>? doneDays, TimeOfDay? reminder, bool clearReminder = false, Schedule? schedule}) => Habit(
+  Habit copyWith({Set<DateTime>? doneDays, TimeOfDay? reminder, bool clearReminder = false, Schedule? schedule, bool? shared}) =>
+      Habit(
         id: id,
         title: title,
         icon: icon,
@@ -246,6 +249,7 @@ class Habit {
         doneDays: doneDays ?? this.doneDays,
         reminder: clearReminder ? null : (reminder ?? this.reminder),
         schedule: schedule ?? this.schedule,
+        shared: shared ?? this.shared,
       );
 }
 

@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../../core/routing/routes.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../../data/models.dart';
 import '../../../data/schedule.dart';
 import '../../../data/stores.dart';
+import '../../../data/social/social_store.dart';
 import '../../../data/styles.dart';
 import '../../../shared/schedule_picker.dart';
+import '../../social/friends_screen.dart' show GroupCard;
 
 /// Habits tab: 7-day dot rows (tap any day), streaks, month heat-map in detail.
 class HabitsView extends ConsumerWidget {
@@ -20,6 +24,8 @@ class HabitsView extends ConsumerWidget {
     final today = dateOnly(DateTime.now());
     final days = [for (var i = 6; i >= 0; i--) today.subtract(Duration(days: i))];
     final d = Motion.of(context, Motion.check);
+    final social = ref.watch(socialProvider);
+    final groups = social.groups.where((g) => g.habits.isNotEmpty).toList();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: Space.screen),
@@ -130,6 +136,19 @@ class HabitsView extends ConsumerWidget {
                 ),
               ),
             ),
+          if (groups.isNotEmpty) ...[
+            SectionHeader(title: 'With friends', action: 'Groups', onAction: () => context.push(Routes.groups)),
+            for (final g in groups)
+              Padding(
+                padding: const EdgeInsets.only(bottom: Space.cardGap),
+                child: GroupCard(
+                  group: g,
+                  myId: social.myId,
+                  compact: true,
+                  toast: (m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m))),
+                ),
+              ),
+          ],
           GradientButton(
             label: 'New habit',
             icon: LucideIcons.plus,
@@ -257,6 +276,28 @@ class _HabitDetail extends ConsumerWidget {
         ),
         const SizedBox(height: Space.sm),
         ReminderTimeRow(time: h.reminder, onChanged: (t) => ref.read(habitsProvider.notifier).setReminder(h.id, t)),
+        if (ref.watch(authProvider.select((a) => a.live))) ...[
+          const SizedBox(height: Space.sm),
+          GlassCard(
+            padding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.xs),
+            child: Row(
+              children: [
+                const Icon(LucideIcons.users, size: 18, color: LifeColors.sky),
+                const SizedBox(width: Space.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Share with friends', style: LifeText.body),
+                      Text('They see the name, streak and if it’s done today', style: LifeText.caption),
+                    ],
+                  ),
+                ),
+                Switch(value: h.shared, onChanged: (v) => ref.read(habitsProvider.notifier).setShared(h.id, v)),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: Space.lg),
         Text(DateFormat('MMMM yyyy').format(today), style: LifeText.eyebrow),
         const SizedBox(height: Space.md),

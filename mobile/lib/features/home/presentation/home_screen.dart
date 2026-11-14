@@ -153,6 +153,12 @@ class _Header extends ConsumerWidget {
           onPressed: () => _showNotifications(context, ref),
         ),
         const SizedBox(width: Space.xs),
+        IconGlassButton(
+          icon: LucideIcons.users,
+          semanticLabel: 'Friends',
+          onPressed: () => context.push(Routes.friends),
+        ),
+        const SizedBox(width: Space.xs),
         Pressable(
           onTap: () => context.push(Routes.settings),
           semanticLabel: 'Profile and settings',

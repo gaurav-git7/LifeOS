@@ -24,6 +24,7 @@ import 'models.dart';
 import 'seed.dart';
 import 'push/push_service.dart';
 import 'schedule.dart';
+import 'social/social_store.dart';
 import 'sync/sync_engine.dart';
 
 const _uuid = Uuid();
@@ -101,6 +102,7 @@ List<ProviderOrFamily> get _dataProviders => [
       achievementsProvider,
       prefsProvider,
       reviewsProvider,
+      socialProvider,
       syncStatusProvider,
     ];
 
@@ -181,6 +183,7 @@ class AuthNotifier extends Notifier<AuthState> {
         ref.read(memoriesProvider.notifier).load(),
         ref.read(assistantProvider.notifier).load(),
         ref.read(reviewsProvider.notifier).load(),
+        ref.read(socialProvider.notifier).load(),
       ]);
     }());
   }
@@ -798,7 +801,13 @@ class HabitsNotifier extends Notifier<List<Habit>> {
       'reminder_time': h.reminder == null ? null : _hhmm(h.reminder!),
       'recurrence_rule': h.schedule.toRRule() ?? 'FREQ=DAILY',
       'target_per_period': h.schedule.target,
+      'visibility': h.shared ? 'friends' : 'private',
     });
+  }
+
+  void setShared(String id, bool shared) {
+    state = [for (final h in state) h.id == id ? h.copyWith(shared: shared) : h];
+    liveSync(ref)?.queue('habits', id, {'visibility': shared ? 'friends' : 'private'});
   }
 
   void setSchedule(String id, Schedule s) {

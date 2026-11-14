@@ -6,6 +6,7 @@ from .journal import JournalEntry, MoodEntry
 from .learning import LearningPath, LearningTopic, Project, Skill, StudySession
 from .productivity import Goal, GoalMilestone, Habit, HabitLog, Reminder, ScheduleBlock, Task
 from .progression import Achievement, UserAchievement, XpLedger
+from .social import FriendGroup, Friendship, GroupCheckin, GroupHabit, GroupMember, Reaction
 from .system import (
     ActivityEvent,
     AuditLog,
@@ -26,6 +27,12 @@ __all__ = [
     "AgentMessage",
     "AuditLog",
     "ClientReport",
+    "FriendGroup",
+    "Friendship",
+    "GroupCheckin",
+    "GroupHabit",
+    "GroupMember",
+    "Reaction",
     "DailySummary",
     "DeviceToken",
     "EmailToken",

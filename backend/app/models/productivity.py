@@ -80,6 +80,7 @@ class Habit(SyncMixin, Base):
     active: Mapped[bool] = mapped_column(sa.Boolean, default=True)
     current_streak: Mapped[int] = mapped_column(sa.Integer, default=0)
     best_streak: Mapped[int] = mapped_column(sa.Integer, default=0)
+    visibility: Mapped[str] = mapped_column(sa.String(12), default="private")  # private|friends
 
 
 class HabitLog(SyncMixin, Base):

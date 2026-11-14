@@ -29,6 +29,8 @@ abstract final class Routes {
         },
       ).toString();
   static const memories = '/memories';
+  static const friends = '/friends';
+  static const groups = '/friends?tab=groups';
   static const settings = '/settings';
   static const gallery = '/dev/gallery';
 

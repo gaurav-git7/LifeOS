@@ -458,6 +458,7 @@ class SyncEngine {
             color: LifeColors.coral,
             startedOn: dateOnly(_parseDt(r['created_at']) ?? DateTime.now()),
             doneDays: done[r['id']] ?? {},
+            shared: r['visibility'] == 'friends',
             schedule: Schedule.fromRRule(r['recurrence_rule'] as String? ?? 'FREQ=DAILY', target: r['target_per_period'] as int? ?? 1),
             reminder: r['reminder_time'] == null
                 ? null

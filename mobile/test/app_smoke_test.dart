@@ -62,7 +62,7 @@ void main() {
     await tester.enterText(fields.at(2), 'correct-horse-battery');
     await tester.tap(find.text('Create account'));
     await settle(tester, 12);
-    expect(find.text('Priorities'), findsOneWidget);
+    expect(find.text('Priorities', skipOffstage: false), findsOneWidget);
     // Live mode: starts empty (no sample data) and talks to the server.
     expect(c.read(authProvider).live, isTrue);
     expect(c.read(tasksProvider), isEmpty);
@@ -75,14 +75,14 @@ void main() {
     await settle(tester);
     await tester.tap(find.text('Explore with sample data'));
     await settle(tester, 10);
-    expect(find.text('Priorities'), findsOneWidget);
+    expect(find.text('Priorities', skipOffstage: false), findsOneWidget);
     expect(c.read(authProvider).live, isFalse);
     expect(c.read(tasksProvider), isNotEmpty);
   });
 
   testWidgets('every tab renders', (tester) async {
     await pumpApp(tester);
-    expect(find.text('Priorities'), findsOneWidget);
+    expect(find.text('Priorities', skipOffstage: false), findsOneWidget);
     await tapTab(tester, 'Plan');
     expect(find.text('Upcoming'), findsOneWidget);
     await tapTab(tester, 'Growth');
@@ -123,7 +123,7 @@ void main() {
       await settle(tester);
     }
 
-    expect(find.text('Priorities'), findsOneWidget);
+    expect(find.text('Priorities', skipOffstage: false), findsOneWidget);
     await swipeLeft(); // Home → Plan
     expect(c.read(routerProvider).state.matchedLocation, Routes.plan);
     for (var i = 0; i < 3; i++) {

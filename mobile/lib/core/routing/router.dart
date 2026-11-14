@@ -18,12 +18,16 @@ import '../../features/journal/presentation/journal_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/plan/presentation/plan_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
+import '../../features/social/friends_screen.dart';
 import '../../shell/app_shell.dart';
 import '../../shell/fade_indexed_stack.dart';
 import '../motion/transitions.dart';
 import 'routes.dart';
 
 final _rootKey = GlobalKey<NavigatorState>(debugLabel: 'root');
+
+/// For showing sheets from outside the widget tree (e.g. a home-screen widget tap).
+GlobalKey<NavigatorState> get rootNavigatorKey => _rootKey;
 
 StatefulShellBranch _tab(String path, Widget screen) => StatefulShellBranch(
       routes: [
@@ -90,6 +94,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           )),
       _page('/entry/:id', (s) => JournalEditorScreen(entryId: s.pathParameters['id'])),
       _page(Routes.memories, (_) => const MemoriesScreen()),
+      _page(Routes.friends, (s) => FriendsScreen(initialTab: s.uri.queryParameters['tab'] == 'groups' ? 1 : 0)),
       _page(Routes.settings, (_) => const SettingsScreen()),
       _page(Routes.gallery, (_) => const GalleryScreen()),
     ],
