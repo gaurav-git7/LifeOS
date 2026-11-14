@@ -118,6 +118,34 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ]),
 
+                _Section('Goals', [
+                  _NavRow(
+                    icon: LucideIcons.timer,
+                    color: LifeColors.mint,
+                    title: 'Daily study goal',
+                    trailing: formatMinutes(prefs.studyGoalMinutes.toDouble()),
+                    onTap: () => showGlassSheet<void>(
+                      context,
+                      title: 'Daily study goal',
+                      builder: (sheet) => Wrap(
+                        spacing: Space.sm,
+                        runSpacing: Space.sm,
+                        children: [
+                          for (final m in const [30, 45, 60, 90, 120, 180])
+                            GlassChip(
+                              data: FilterChipData(formatMinutes(m.toDouble())),
+                              selected: prefs.studyGoalMinutes == m,
+                              onTap: () {
+                                set((p) => p.copyWith(studyGoalMinutes: m));
+                                Navigator.of(sheet).pop();
+                              },
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ]),
+
                 _Section('Assistant & privacy', [
                   _SwitchRow(
                     icon: LucideIcons.sparkles,
@@ -318,20 +346,14 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        backgroundColor: LifeColors.surfaceHigh,
-        title: Text('Delete your account?', style: LifeText.h2),
-        content: Text('All tasks, goals, journal entries and AI memory are permanently deleted. This can’t be undone.',
-            style: LifeText.body),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Delete', style: TextStyle(color: LifeColors.danger))),
-        ],
-      ),
+    final ok = await showGlassConfirm(
+      context,
+      title: 'Delete your account?',
+      message: 'All tasks, goals, journal entries and AI memory are permanently deleted. This can’t be undone.',
+      confirmLabel: 'Delete account',
+      icon: LucideIcons.userX,
     );
-    if (ok != true) return;
+    if (!ok) return;
     final err = await ref.read(authProvider.notifier).deleteAccount();
     if (err != null && context.mounted) _toast(context, err);
   }

@@ -352,6 +352,7 @@ class Prefs {
     this.appLock = false,
     this.journalLock = false,
     this.dailyBudget = 0.10,
+    this.studyGoalMinutes = 60,
   });
 
   final TimeOfDay reviewTime;
@@ -366,6 +367,7 @@ class Prefs {
   final bool appLock;
   final bool journalLock;
   final double dailyBudget;
+  final int studyGoalMinutes; // daily study target for the Today ring (kept on this phone)
 
   Prefs copyWith({
     TimeOfDay? reviewTime,
@@ -380,6 +382,7 @@ class Prefs {
     bool? appLock,
     bool? journalLock,
     double? dailyBudget,
+    int? studyGoalMinutes,
   }) =>
       Prefs(
         reviewTime: reviewTime ?? this.reviewTime,
@@ -394,6 +397,7 @@ class Prefs {
         appLock: appLock ?? this.appLock,
         journalLock: journalLock ?? this.journalLock,
         dailyBudget: dailyBudget ?? this.dailyBudget,
+        studyGoalMinutes: studyGoalMinutes ?? this.studyGoalMinutes,
       );
 }
 
@@ -402,8 +406,18 @@ TimeOfDay? _tod(Object? v) =>
     v is String && v.length >= 5 ? TimeOfDay(hour: int.parse(v.substring(0, 2)), minute: int.parse(v.substring(3, 5))) : null;
 
 class PrefsNotifier extends Notifier<Prefs> {
+  static const _studyGoalKey = 'lifeos_study_goal';
+
   @override
-  Prefs build() => const Prefs();
+  Prefs build() {
+    Future.microtask(() async {
+      try {
+        final v = (await SharedPreferences.getInstance()).getInt(_studyGoalKey);
+        if (v != null && ref.mounted) state = state.copyWith(studyGoalMinutes: v);
+      } catch (_) {}
+    });
+    return const Prefs();
+  }
 
   static Map<String, Object?> _toApi(Prefs p) => {
         'daily_review_enabled': p.dailyReview,
@@ -421,7 +435,12 @@ class PrefsNotifier extends Notifier<Prefs> {
 
   void update(Prefs Function(Prefs) f) {
     final before = _toApi(state);
+    final goalBefore = state.studyGoalMinutes;
     state = f(state);
+    if (state.studyGoalMinutes != goalBefore) {
+      final v = state.studyGoalMinutes;
+      unawaited(SharedPreferences.getInstance().then((p) => p.setInt(_studyGoalKey, v)).then<void>((_) {}, onError: (_) {}));
+    }
     if (liveSync(ref) == null) return;
     final after = _toApi(state);
     final diff = {for (final e in after.entries) if (before[e.key] != e.value) e.key: e.value};
@@ -446,6 +465,7 @@ class PrefsNotifier extends Notifier<Prefs> {
         journalAi: r['journal_ai_enabled'] as bool? ?? false,
         appLock: state.appLock,
         journalLock: state.journalLock,
+        studyGoalMinutes: state.studyGoalMinutes,
         dailyBudget: (r['ai_daily_budget_usd'] as num?)?.toDouble() ?? state.dailyBudget,
       );
     } on ApiException {

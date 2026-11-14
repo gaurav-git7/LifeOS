@@ -17,6 +17,8 @@ class FakeApi implements HttpClientAdapter {
   int totalXp = 0;
   int _n = 0;
   bool offline = false;
+  Duration pullDelay = Duration.zero; // reply arrives late (built when the request arrived)
+  int conflicts = 0;
 
   static const user = {
     'id': '00000000-0000-4000-8000-000000000001',
@@ -55,7 +57,9 @@ class FakeApi implements HttpClientAdapter {
     }
     final body = o.data is Map ? Map<String, dynamic>.from(o.data as Map) : <String, dynamic>{};
     final (status, out) = _route(o.method, o.path, body);
-    return ResponseBody.fromString(jsonEncode(out), status, headers: {
+    final encoded = jsonEncode(out); // snapshot now, like a real server
+    if (o.path == '/sync/pull' && pullDelay > Duration.zero) await Future<void>.delayed(pullDelay);
+    return ResponseBody.fromString(encoded, status, headers: {
       Headers.contentTypeHeader: [Headers.jsonContentType],
     });
   }
@@ -90,6 +94,15 @@ class FakeApi implements HttpClientAdapter {
           final table = rows[c['entity'] as String] ??= {};
           final id = c['id'] as String;
           final existing = table[id];
+          final base = c['base_version'];
+          if (existing != null && base != null && base != existing['version']) {
+            conflicts++;
+            if (c['entity'] == 'journal_entries' && (c['data'] as Map).containsKey('content')) {
+              serverInsert('journal_entries', 'copy-$conflicts', {...existing, 'content': c['data']['content'], 'title': '(conflict copy)'});
+            }
+            results.add({'change_id': c['change_id'], 'status': 'conflict', 'id': id, 'version': existing['version'], 'server': existing});
+            continue;
+          }
           if (c['op'] == 'delete') {
             if (existing != null) {
               existing['deleted_at'] = now;

@@ -24,6 +24,12 @@ class AppShell extends ConsumerWidget {
     final pending = ref.watch(assistantProvider.select((s) => s.pending.length));
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
     final live = ref.watch(authProvider.select((a) => a.live));
+    bool swipe(int dir) {
+      final next = index + dir;
+      if (next < 0 || next > 4 || keyboardOpen) return false;
+      shell.goBranch(next);
+      return true;
+    }
 
     return Scaffold(
       backgroundColor: LifeColors.bg,
@@ -42,9 +48,9 @@ class AppShell extends ConsumerWidget {
                       await ref.read(syncEngineProvider).syncNow();
                       await ref.read(assistantProvider.notifier).load();
                     },
-                    child: shell,
+                    child: SwipeNav(onSwipe: swipe, child: shell),
                   )
-                : shell,
+                : SwipeNav(onSwipe: swipe, child: shell),
           ),
           Positioned(
             right: Space.screen,

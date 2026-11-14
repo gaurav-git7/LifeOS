@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:lifeos/app/app.dart';
 import 'package:lifeos/core/motion/motion.dart';
+import 'package:lifeos/core/routing/router.dart';
+import 'package:lifeos/core/routing/routes.dart';
 import 'package:lifeos/data/stores.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -112,6 +114,24 @@ void main() {
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await settle(tester);
     expect(c.read(tasksProvider).any((t) => t.title == 'Study graphs' && t.hasTime), isTrue);
+  });
+
+  testWidgets('swipe moves through sub-tabs, then to the next tab', (tester) async {
+    final c = await pumpApp(tester);
+    Future<void> swipeLeft() async {
+      await tester.flingFrom(const Offset(320, 420), const Offset(-250, 0), 1500);
+      await settle(tester);
+    }
+
+    expect(find.text('Priorities'), findsOneWidget);
+    await swipeLeft(); // Home → Plan
+    expect(c.read(routerProvider).state.matchedLocation, Routes.plan);
+    for (var i = 0; i < 3; i++) {
+      await swipeLeft(); // Tasks → Goals → Habits → Calendar
+    }
+    expect(find.text('+ Add'), findsOneWidget); // calendar day header
+    await swipeLeft(); // Calendar is the last sub-tab → Growth
+    expect(c.read(routerProvider).state.matchedLocation, Routes.growth);
   });
 
   testWidgets('sign out returns to login', (tester) async {

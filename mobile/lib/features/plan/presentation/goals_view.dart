@@ -208,7 +208,13 @@ class _GoalDetail extends ConsumerWidget {
               icon: LucideIcons.trash2,
               variant: ButtonVariant.danger,
               expand: true,
-              onPressed: () {
+              onPressed: () async {
+                final ok = await showGlassConfirm(
+                  context,
+                  title: 'Delete this goal?',
+                  message: 'Its milestones are removed. Linked tasks stay.',
+                );
+                if (!ok || !context.mounted) return;
                 ref.read(goalsProvider.notifier).remove(g.id);
                 Navigator.of(context).pop();
               },

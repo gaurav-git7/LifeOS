@@ -24,74 +24,79 @@ class AssistantScreen extends ConsumerWidget {
     final chatStarted = s.messages.any((m) => m.role == ChatRole.user);
     final compactHeader = tab != 0 || chatStarted;
 
-    return SafeArea(
-      bottom: false,
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(Space.screen, Space.md, Space.screen, Space.lg),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    const SizedBox(width: Sizes.touch),
-                    const Spacer(),
-                    AnimatedSize(
-                      duration: Motion.size(context, Motion.card),
-                      curve: Motion.inOut,
-                      child: AiMark(
-                        size: compactHeader ? 52 : 104,
-                        state: busy ? AiState.thinking : AiState.idle,
+    return SwipeNav(
+      onSwipe: (dir) {
+        final next = tab + dir;
+        if (next < 0 || next > 2) return false;
+        ref.read(assistantTabProvider.notifier).set(next);
+        return true;
+      },
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Space.screen, Space.md, Space.screen, Space.lg),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      const SizedBox(width: Sizes.touch),
+                      const Spacer(),
+                      AnimatedSize(
+                        duration: Motion.size(context, Motion.card),
+                        curve: Motion.inOut,
+                        child: AiMark(size: compactHeader ? 52 : 104, state: busy ? AiState.thinking : AiState.idle),
                       ),
-                    ),
-                    const Spacer(),
-                    IconGlassButton(
-                      icon: LucideIcons.brain,
-                      semanticLabel: 'What the assistant remembers',
-                      onPressed: () => context.push(Routes.memories),
-                    ),
-                  ],
-                ),
-                AnimatedSize(
-                  duration: Motion.size(context, Motion.card),
-                  curve: Motion.inOut,
-                  child: compactHeader
-                      ? const SizedBox(width: double.infinity, height: Space.md)
-                      : Padding(
-                          padding: const EdgeInsets.only(top: Space.md, bottom: Space.xl),
-                          child: Column(
-                            children: [
-                              Text('What should we', style: LifeText.titleSerif, textAlign: TextAlign.center),
-                              Text(
-                                'work on today?',
-                                style: LifeText.titleSerifItalic.copyWith(color: LifeColors.text2),
-                                textAlign: TextAlign.center,
-                              ),
-                            ],
+                      const Spacer(),
+                      IconGlassButton(
+                        icon: LucideIcons.brain,
+                        semanticLabel: 'What the assistant remembers',
+                        onPressed: () => context.push(Routes.memories),
+                      ),
+                    ],
+                  ),
+                  AnimatedSize(
+                    duration: Motion.size(context, Motion.card),
+                    curve: Motion.inOut,
+                    child: compactHeader
+                        ? const SizedBox(width: double.infinity, height: Space.md)
+                        : Padding(
+                            padding: const EdgeInsets.only(top: Space.md, bottom: Space.xl),
+                            child: Column(
+                              children: [
+                                Text('What should we', style: LifeText.titleSerif, textAlign: TextAlign.center),
+                                Text(
+                                  'work on today?',
+                                  style: LifeText.titleSerifItalic.copyWith(color: LifeColors.text2),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                ),
-                SegmentedGlass(
-                  segments: const ['Chat', 'Reviews', 'Suggestions'],
-                  index: tab,
-                  badges: {2: pending},
-                  onChanged: (i) => ref.read(assistantTabProvider.notifier).set(i),
-                ),
-              ],
+                  ),
+                  SegmentedGlass(
+                    segments: const ['Chat', 'Reviews', 'Suggestions'],
+                    index: tab,
+                    badges: {2: pending},
+                    onChanged: (i) => ref.read(assistantTabProvider.notifier).set(i),
+                  ),
+                ],
+              ),
             ),
-          ),
-          Expanded(
-            child: AnimatedSwitcher(
-              duration: Motion.of(context, Motion.card),
-              transitionBuilder: (c, a) => FadeTransition(opacity: a, child: c),
-              child: switch (tab) {
-                0 => const ChatView(key: ValueKey('chat')),
-                1 => const ReviewsView(key: ValueKey('reviews')),
-                _ => const SuggestionsView(key: ValueKey('suggestions')),
-              },
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: Motion.of(context, Motion.card),
+                transitionBuilder: (c, a) => FadeTransition(opacity: a, child: c),
+                child: switch (tab) {
+                  0 => const ChatView(key: ValueKey('chat')),
+                  1 => const ReviewsView(key: ValueKey('reviews')),
+                  _ => const SuggestionsView(key: ValueKey('suggestions')),
+                },
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

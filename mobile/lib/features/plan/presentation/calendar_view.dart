@@ -33,6 +33,7 @@ class _CalendarViewState extends ConsumerState<CalendarView> {
   Widget build(BuildContext context) {
     final tasks = ref.watch(tasksProvider);
     final blocks = ref.watch(scheduleProvider);
+    final habits = ref.watch(habitsProvider).where((h) => !dateOnly(h.startedOn).isAfter(_selected)).toList();
     final markers = <DateTime, List<Color>>{};
     for (final t in tasks.where((t) => t.due != null && !t.done)) {
       markers.putIfAbsent(dateOnly(t.due!), () => []).add(t.priority.color);
@@ -111,7 +112,7 @@ class _CalendarViewState extends ConsumerState<CalendarView> {
               ),
             ),
           ),
-          if (agenda.isEmpty && untimed.isEmpty)
+          if (agenda.isEmpty && untimed.isEmpty && habits.isEmpty)
             const GlassCard(child: EmptyState(icon: LucideIcons.calendarDays, title: 'A free day', message: 'Nothing scheduled yet.'))
           else ...[
             if (agenda.isNotEmpty)
@@ -124,6 +125,12 @@ class _CalendarViewState extends ConsumerState<CalendarView> {
               Text('Anytime', style: LifeText.eyebrow),
               const SizedBox(height: Space.sm),
               TaskGroupCard(tasks: untimed),
+            ],
+            if (habits.isNotEmpty) ...[
+              const SizedBox(height: Space.lg),
+              Text('Habits', style: LifeText.eyebrow),
+              const SizedBox(height: Space.sm),
+              _HabitsForDay(day: _selected, habits: habits),
             ],
           ],
         ],
@@ -175,6 +182,53 @@ class _TimedTask extends StatelessWidget {
         SizedBox(width: 56, child: Text(DateFormat('h:mm a').format(task.due!), style: LifeText.mono)),
         Expanded(child: TaskTile(task: task)),
       ],
+    );
+  }
+}
+
+/// The selected day's habits; tick them off for today or earlier days.
+class _HabitsForDay extends ConsumerWidget {
+  const _HabitsForDay({required this.day, required this.habits});
+
+  final DateTime day;
+  final List<Habit> habits;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final future = day.isAfter(dateOnly(DateTime.now()));
+    return GlassCard(
+      padding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.sm),
+      child: Column(
+        children: [
+          for (final h in habits)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: Space.xs),
+              child: Row(
+                children: [
+                  IconChip(icon: h.icon, color: h.color, size: 32),
+                  const SizedBox(width: Space.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(h.title, style: LifeText.bodyStrong, overflow: TextOverflow.ellipsis),
+                        if (h.reminder != null) Text(h.reminder!.format(context), style: LifeText.mono.copyWith(fontSize: 11)),
+                      ],
+                    ),
+                  ),
+                  if (future)
+                    Text('Upcoming', style: LifeText.caption)
+                  else
+                    Pressable(
+                      semanticLabel: h.doneOn(day) ? 'Mark ${h.title} not done' : 'Mark ${h.title} done',
+                      onTap: () => ref.read(habitsProvider.notifier).toggle(h.id, day),
+                      child: AnimatedCheck(checked: h.doneOn(day), color: h.color),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

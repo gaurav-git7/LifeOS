@@ -33,46 +33,54 @@ class _GrowthScreenState extends ConsumerState<GrowthScreen> {
       3 => const _StudyTab(),
       _ => const _ProjectsTab(),
     };
-    return TabScaffold(
-      title: 'Growth',
-      subtitle: '${info.rank} · Level ${info.level}',
-      actions: [
-        IconGlassButton(
-          icon: LucideIcons.trophy,
-          semanticLabel: 'Achievements',
-          onPressed: () => context.push(Routes.achievements),
-        ),
-      ],
-      slivers: [
-        const SliverSection(bottom: Space.lg, child: _LevelCard()),
-        // Five sections don't fit a segmented control on a phone; chips scroll.
-        SliverPadding(
-          padding: const EdgeInsets.only(bottom: Space.lg),
-          sliver: SliverToBoxAdapter(
-            child: FilterChipRow(
-              selected: _tab,
-              onSelected: (i) => setState(() => _tab = i),
-              chips: const [
-                FilterChipData('Overview', icon: LucideIcons.layoutGrid),
-                FilterChipData('Skills', icon: LucideIcons.gem),
-                FilterChipData('Roadmaps', icon: LucideIcons.map),
-                FilterChipData('Study', icon: LucideIcons.timer),
-                FilterChipData('Projects', icon: LucideIcons.folderGit2),
-              ],
+    return SwipeNav(
+      onSwipe: (dir) {
+        final next = _tab + dir;
+        if (next < 0 || next > 4) return false;
+        setState(() => _tab = next);
+        return true;
+      },
+      child: TabScaffold(
+        title: 'Growth',
+        subtitle: '${info.rank} · Level ${info.level}',
+        actions: [
+          IconGlassButton(
+            icon: LucideIcons.trophy,
+            semanticLabel: 'Achievements',
+            onPressed: () => context.push(Routes.achievements),
+          ),
+        ],
+        slivers: [
+          const SliverSection(bottom: Space.lg, child: _LevelCard()),
+          // Five sections don't fit a segmented control on a phone; chips scroll.
+          SliverPadding(
+            padding: const EdgeInsets.only(bottom: Space.lg),
+            sliver: SliverToBoxAdapter(
+              child: FilterChipRow(
+                selected: _tab,
+                onSelected: (i) => setState(() => _tab = i),
+                chips: const [
+                  FilterChipData('Overview', icon: LucideIcons.layoutGrid),
+                  FilterChipData('Skills', icon: LucideIcons.gem),
+                  FilterChipData('Roadmaps', icon: LucideIcons.map),
+                  FilterChipData('Study', icon: LucideIcons.timer),
+                  FilterChipData('Projects', icon: LucideIcons.folderGit2),
+                ],
+              ),
             ),
           ),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: Space.screen),
-          sliver: SliverToBoxAdapter(
-            child: AnimatedSwitcher(
-              duration: Motion.of(context, Motion.card),
-              transitionBuilder: (c, a) => FadeTransition(opacity: a, child: c),
-              child: KeyedSubtree(key: ValueKey(_tab), child: body),
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: Space.screen),
+            sliver: SliverToBoxAdapter(
+              child: AnimatedSwitcher(
+                duration: Motion.of(context, Motion.card),
+                transitionBuilder: (c, a) => FadeTransition(opacity: a, child: c),
+                child: KeyedSubtree(key: ValueKey(_tab), child: body),
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -110,9 +118,15 @@ class _LevelCard extends ConsumerWidget {
                   children: [
                     Text(info.rank, style: LifeText.titleSerifItalic.copyWith(fontSize: 24)),
                     const SizedBox(height: Space.sm),
-                    GlowBar(value: info.progress, gradient: const LinearGradient(colors: [LifeColors.mint, LifeColors.sky])),
+                    GlowBar(
+                      value: info.progress,
+                      gradient: const LinearGradient(colors: [LifeColors.mint, LifeColors.sky]),
+                    ),
                     const SizedBox(height: Space.xs),
-                    Text('${f.format(info.into)} / ${f.format(info.forNext)} XP to level ${info.level + 1}', style: LifeText.mono),
+                    Text(
+                      '${f.format(info.into)} / ${f.format(info.forNext)} XP to level ${info.level + 1}',
+                      style: LifeText.mono,
+                    ),
                   ],
                 ),
               ),
@@ -143,19 +157,29 @@ class _Pill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Expanded(
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 7),
-          decoration: BoxDecoration(color: LifeColors.glass, borderRadius: Radii.rPill, border: Border.all(color: LifeColors.hairline)),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 14, color: color),
-              const SizedBox(width: 5),
-              Flexible(child: Text(text, style: LifeText.caption.copyWith(color: LifeColors.text), overflow: TextOverflow.ellipsis)),
-            ],
+    child: Container(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      decoration: BoxDecoration(
+        color: LifeColors.glass,
+        borderRadius: Radii.rPill,
+        border: Border.all(color: LifeColors.hairline),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              text,
+              style: LifeText.caption.copyWith(color: LifeColors.text),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
-        ),
-      );
+        ],
+      ),
+    ),
+  );
 }
 
 // ---------------------------------------------------------------- overview
@@ -238,7 +262,10 @@ class _Overview extends ConsumerWidget {
                     for (final a in achievements.take(4))
                       Padding(
                         padding: const EdgeInsets.only(right: Space.md),
-                        child: Tooltip(message: a.title, child: IconChip(icon: a.icon, color: a.color, size: 44)),
+                        child: Tooltip(
+                          message: a.title,
+                          child: IconChip(icon: a.icon, color: a.color, size: 44),
+                        ),
                       ),
                   ],
                 ),
@@ -294,7 +321,10 @@ class _SkillsTab extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Sparkline(values: s.weekMinutes, color: s.color),
-                            Text(formatMinutes(s.weekMinutes.fold(0, (a, b) => a + b).toDouble()), style: LifeText.mono),
+                            Text(
+                              formatMinutes(s.weekMinutes.fold(0, (a, b) => a + b).toDouble()),
+                              style: LifeText.mono,
+                            ),
                           ],
                         ),
                       ],
@@ -335,7 +365,10 @@ class _PathCard extends StatelessWidget {
           Row(
             children: [
               Expanded(child: Text(path.title, style: LifeText.title)),
-              Text('${(path.progress * 100).round()}%', style: LifeText.stat.copyWith(fontSize: 18, color: LifeColors.mint)),
+              Text(
+                '${(path.progress * 100).round()}%',
+                style: LifeText.stat.copyWith(fontSize: 18, color: LifeColors.mint),
+              ),
             ],
           ),
           const SizedBox(height: Space.md),
@@ -359,10 +392,7 @@ class _PathCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: Space.md),
-          Text(
-            path.nextTopic == null ? 'Completed 🎉' : 'Next: ${path.nextTopic!.title}',
-            style: LifeText.caption,
-          ),
+          Text(path.nextTopic == null ? 'Completed 🎉' : 'Next: ${path.nextTopic!.title}', style: LifeText.caption),
         ],
       ),
     );
@@ -388,8 +418,10 @@ class _RoadmapsTab extends ConsumerWidget {
                 const IconChip(icon: LucideIcons.refreshCw, color: LifeColors.amber),
                 const SizedBox(width: Space.md),
                 Expanded(
-                  child: Text('${due.length} topic${due.length == 1 ? '' : 's'} due for revision: ${due.map((e) => e.$2.title).join(', ')}',
-                      style: LifeText.body),
+                  child: Text(
+                    '${due.length} topic${due.length == 1 ? '' : 's'} due for revision: ${due.map((e) => e.$2.title).join(', ')}',
+                    style: LifeText.body,
+                  ),
                 ),
               ],
             ),
@@ -397,7 +429,13 @@ class _RoadmapsTab extends ConsumerWidget {
           const SizedBox(height: Space.cardGap),
         ],
         for (final (i, p) in paths.indexed)
-          StaggeredEntry(index: i, child: Padding(padding: const EdgeInsets.only(bottom: Space.cardGap), child: _PathCard(path: p))),
+          StaggeredEntry(
+            index: i,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: Space.cardGap),
+              child: _PathCard(path: p),
+            ),
+          ),
         GradientButton(
           label: 'New roadmap',
           icon: LucideIcons.plus,
@@ -499,8 +537,17 @@ class _StudyTab extends ConsumerWidget {
                   child: Row(
                     children: [
                       SizedBox(width: 80, child: Text(e.key.name, style: LifeText.label)),
-                      Expanded(child: GlowBar(value: e.value / maxSkill, color: e.key.color, height: 8)),
-                      SizedBox(width: 60, child: Text(formatMinutes(e.value.toDouble()), textAlign: TextAlign.right, style: LifeText.mono)),
+                      Expanded(
+                        child: GlowBar(value: e.value / maxSkill, color: e.key.color, height: 8),
+                      ),
+                      SizedBox(
+                        width: 60,
+                        child: Text(
+                          formatMinutes(e.value.toDouble()),
+                          textAlign: TextAlign.right,
+                          style: LifeText.mono,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -519,7 +566,10 @@ class _StudyTab extends ConsumerWidget {
                   padding: const EdgeInsets.symmetric(vertical: Space.md),
                   child: Row(
                     children: [
-                      IconChip(icon: l.skill(s.skillId)?.icon ?? LucideIcons.bookOpen, color: l.skill(s.skillId)?.color ?? LifeColors.mint),
+                      IconChip(
+                        icon: l.skill(s.skillId)?.icon ?? LucideIcons.bookOpen,
+                        color: l.skill(s.skillId)?.color ?? LifeColors.mint,
+                      ),
                       const SizedBox(width: Space.md),
                       Expanded(
                         child: Column(
@@ -590,8 +640,15 @@ class _ProjectsTab extends ConsumerWidget {
                     const SizedBox(height: Space.md),
                     Row(
                       children: [
-                        Expanded(child: Text('Next: ${p.nextMilestone ?? '—'}', style: LifeText.caption, overflow: TextOverflow.ellipsis)),
-                        if (p.deadline != null) Text('${p.deadline!.difference(today).inDays}d left', style: LifeText.mono),
+                        Expanded(
+                          child: Text(
+                            'Next: ${p.nextMilestone ?? '—'}',
+                            style: LifeText.caption,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (p.deadline != null)
+                          Text('${p.deadline!.difference(today).inDays}d left', style: LifeText.mono),
                       ],
                     ),
                   ],
@@ -632,7 +689,11 @@ class _ProjectDetail extends ConsumerWidget {
         GlowBar(value: p.progress, color: p.color),
         const SizedBox(height: Space.xl),
         Text('Milestones', style: LifeText.eyebrow),
-        if (p.milestones.isEmpty) Padding(padding: const EdgeInsets.only(top: Space.sm), child: Text('No milestones yet.', style: LifeText.caption)),
+        if (p.milestones.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: Space.sm),
+            child: Text('No milestones yet.', style: LifeText.caption),
+          ),
         for (final m in p.milestones)
           Row(
             children: [
@@ -669,7 +730,13 @@ class _ProjectDetail extends ConsumerWidget {
           icon: LucideIcons.trash2,
           variant: ButtonVariant.danger,
           expand: true,
-          onPressed: () {
+          onPressed: () async {
+            final ok = await showGlassConfirm(
+              context,
+              title: 'Delete ${p.name}?',
+              message: 'The project and its milestones are removed.',
+            );
+            if (!ok || !context.mounted) return;
             ref.read(learningProvider.notifier).removeProject(p.id);
             Navigator.of(context).pop();
           },

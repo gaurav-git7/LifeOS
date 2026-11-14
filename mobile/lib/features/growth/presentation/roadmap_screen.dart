@@ -39,22 +39,12 @@ class RoadmapScreen extends ConsumerWidget {
                             icon: LucideIcons.trash2,
                             semanticLabel: 'Delete roadmap',
                             onPressed: () async {
-                              final ok = await showDialog<bool>(
-                                context: context,
-                                builder: (c) => AlertDialog(
-                                  backgroundColor: LifeColors.surfaceHigh,
-                                  title: Text('Delete this roadmap?', style: LifeText.h2),
-                                  content: Text('Its topics and progress are removed.', style: LifeText.body),
-                                  actions: [
-                                    TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(c, true),
-                                      child: const Text('Delete', style: TextStyle(color: LifeColors.danger)),
-                                    ),
-                                  ],
-                                ),
+                              final ok = await showGlassConfirm(
+                                context,
+                                title: 'Delete this roadmap?',
+                                message: 'Its topics and revision schedule are removed. Study sessions stay.',
                               );
-                              if (ok == true && context.mounted) {
+                              if (ok && context.mounted) {
                                 ref.read(learningProvider.notifier).removePath(pathId);
                                 context.pop();
                               }

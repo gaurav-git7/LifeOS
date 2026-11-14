@@ -62,6 +62,7 @@ class SyncEngine {
   String? cursor;
   Timer? _pushTimer;
   bool _pushing = false;
+  final Set<String> _inFlight = {}; // change_ids sent and awaiting a reply
   Future<void>? _pulling;
 
   static const _cacheKey = 'lifeos_sync_cache_v1';
@@ -134,6 +135,20 @@ class SyncEngine {
         'deleted_at': null,
       };
     }
+    // Several quick edits to the same item (e.g. journal autosave) become one
+    // change, as long as that change hasn't been sent yet. Only the newest
+    // change is merged into, so the order of changes is kept.
+    final last = outbox.lastOrNull;
+    if (!delete &&
+        last != null &&
+        last['entity'] == entity &&
+        last['id'] == id &&
+        last['op'] == 'upsert' &&
+        !_inFlight.contains(last['change_id'])) {
+      last['data'] = {...(last['data'] as Map).cast<String, dynamic>(), ...data};
+      _afterQueue();
+      return;
+    }
     mirror[entity]![id]!['version'] = (base ?? 0) + 1;
     outbox.add({
       'change_id': 'c-${DateTime.now().microsecondsSinceEpoch}-${outbox.length}',
@@ -143,6 +158,10 @@ class SyncEngine {
       'base_version': sendBase ? base : null,
       'data': delete ? <String, dynamic>{} : data,
     });
+    _afterQueue();
+  }
+
+  void _afterQueue() {
     _status();
     _pushTimer?.cancel();
     _pushTimer = Timer(const Duration(milliseconds: 400), push);
@@ -224,6 +243,7 @@ class SyncEngine {
     if (_pushing || outbox.isEmpty) return;
     _pushing = true;
     final batch = List<Map<String, dynamic>>.from(outbox.take(200));
+    _inFlight.addAll(batch.map((c) => c['change_id'] as String));
     var needsPull = false;
     try {
       _status(phase: SyncPhase.syncing);
@@ -234,8 +254,10 @@ class SyncEngine {
         final id = r['id'] as String;
         switch (r['status']) {
           case 'applied':
+            // Keep the higher number: newer local edits may already be queued on top.
             final row = mirror[entity]![id];
-            if (row != null && r['version'] != null) row['version'] = r['version'];
+            final v = r['version'] as int?;
+            if (row != null && v != null && v > (row['version'] as int? ?? 0)) row['version'] = v;
           case 'conflict':
             if (r['server'] != null) mirror[entity]![id] = Map<String, dynamic>.from(r['server'] as Map);
             needsPull = true;
@@ -249,12 +271,16 @@ class SyncEngine {
       await _saveCache();
       _status(phase: SyncPhase.idle);
       // Server-side effects (XP, streaks, next recurring task) arrive via pull.
+      // A pull that started before this push may carry older rows: wait for it,
+      // then pull again.
+      await _pulling;
       await pull();
       if (needsPull) publish();
     } on ApiException catch (e) {
       if (ref.mounted) _status(phase: e.isNetwork ? SyncPhase.offline : SyncPhase.error, message: e.isNetwork ? null : e.message);
     } finally {
       _pushing = false;
+      _inFlight.removeAll(batch.map((c) => c['change_id']));
     }
     if (ref.mounted && outbox.isNotEmpty && ref.read(syncStatusProvider).phase == SyncPhase.idle) {
       _pushTimer = Timer(const Duration(milliseconds: 200), push);
@@ -277,6 +303,9 @@ class SyncEngine {
             final row = Map<String, dynamic>.from(r as Map);
             final id = row['id'] as String;
             if (pendingIds.contains('$e/$id')) continue; // local change not sent yet wins for now
+            // Never step back to an older copy (a reply that crossed a newer push).
+            final local = mirror[e]![id];
+            if (local != null && (local['version'] as int? ?? 0) > (row['version'] as int? ?? 0)) continue;
             mirror[e]![id] = row;
           }
         }

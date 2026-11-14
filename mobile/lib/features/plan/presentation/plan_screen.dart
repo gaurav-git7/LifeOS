@@ -38,47 +38,55 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
       _ => const CalendarView(),
     };
 
-    return TabScaffold(
-      title: 'Plan',
-      subtitle: '$todayOpen open today${overdue > 0 ? ' · $overdue overdue' : ''}',
-      slivers: [
-        SliverSection(
-          bottom: Space.lg,
-          child: SegmentedGlass(
-            segments: const ['Tasks', 'Goals', 'Habits', 'Calendar'],
-            index: _segment,
-            onChanged: (i) => setState(() => _segment = i),
-          ),
-        ),
-        if (pending > 0)
+    return SwipeNav(
+      onSwipe: (dir) {
+        final next = _segment + dir;
+        if (next < 0 || next > 3) return false;
+        setState(() => _segment = next);
+        return true;
+      },
+      child: TabScaffold(
+        title: 'Plan',
+        subtitle: '$todayOpen open today${overdue > 0 ? ' · $overdue overdue' : ''}',
+        slivers: [
           SliverSection(
             bottom: Space.lg,
-            child: GlassCard(
-              ai: true,
-              padding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.md),
-              onTap: () {
-                ref.read(assistantTabProvider.notifier).set(2);
-                context.go(Routes.assistant);
-              },
-              child: Row(
-                children: [
-                  const AiMark(size: 24),
-                  const SizedBox(width: Space.md),
-                  Expanded(child: Text('$pending suggestions from your assistant', style: LifeText.bodyStrong)),
-                  const Icon(LucideIcons.chevronRight, size: 18, color: LifeColors.text2),
-                ],
-              ),
+            child: SegmentedGlass(
+              segments: const ['Tasks', 'Goals', 'Habits', 'Calendar'],
+              index: _segment,
+              onChanged: (i) => setState(() => _segment = i),
             ),
           ),
-        SliverToBoxAdapter(
-          child: AnimatedSwitcher(
-            duration: Motion.of(context, Motion.card),
-            switchInCurve: Motion.emphasized,
-            transitionBuilder: (child, a) => FadeTransition(opacity: a, child: child),
-            child: KeyedSubtree(key: ValueKey(_segment), child: body),
+          if (pending > 0)
+            SliverSection(
+              bottom: Space.lg,
+              child: GlassCard(
+                ai: true,
+                padding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.md),
+                onTap: () {
+                  ref.read(assistantTabProvider.notifier).set(2);
+                  context.go(Routes.assistant);
+                },
+                child: Row(
+                  children: [
+                    const AiMark(size: 24),
+                    const SizedBox(width: Space.md),
+                    Expanded(child: Text('$pending suggestions from your assistant', style: LifeText.bodyStrong)),
+                    const Icon(LucideIcons.chevronRight, size: 18, color: LifeColors.text2),
+                  ],
+                ),
+              ),
+            ),
+          SliverToBoxAdapter(
+            child: AnimatedSwitcher(
+              duration: Motion.of(context, Motion.card),
+              switchInCurve: Motion.emphasized,
+              transitionBuilder: (child, a) => FadeTransition(opacity: a, child: child),
+              child: KeyedSubtree(key: ValueKey(_segment), child: body),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

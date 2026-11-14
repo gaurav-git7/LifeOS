@@ -132,22 +132,12 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
                           icon: LucideIcons.trash2,
                           semanticLabel: 'Delete entry',
                           onPressed: () async {
-                            final ok = await showDialog<bool>(
-                              context: context,
-                              builder: (c) => AlertDialog(
-                                backgroundColor: LifeColors.surfaceHigh,
-                                title: Text('Delete this entry?', style: LifeText.h2),
-                                content: Text('This can’t be undone.', style: LifeText.body),
-                                actions: [
-                                  TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(c, true),
-                                    child: const Text('Delete', style: TextStyle(color: LifeColors.danger)),
-                                  ),
-                                ],
-                              ),
+                            final ok = await showGlassConfirm(
+                              context,
+                              title: 'Delete this entry?',
+                              message: 'It’s removed from all your devices. This can’t be undone.',
                             );
-                            if (ok == true) {
+                            if (ok) {
                               _debounce?.cancel();
                               _saved = true;
                               ref.read(journalProvider.notifier).deleteEntry(_id);

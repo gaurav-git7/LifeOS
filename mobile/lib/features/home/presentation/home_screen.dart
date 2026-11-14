@@ -13,7 +13,6 @@ import '../../../data/seed.dart';
 import '../../../data/stores.dart';
 import '../../../shared/task_tile.dart';
 
-const _studyGoalMinutes = 180;
 
 /// Daily Command Center. See docs/UI_UX.md §9.1.
 class HomeScreen extends ConsumerStatefulWidget {
@@ -245,10 +244,21 @@ class _TodayCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final prog = ref.watch(progressionProvider);
-    final taskRatio = tasks.$2 == 0 ? 1.0 : tasks.$1 / tasks.$2;
-    final habitRatio = habits.$2 == 0 ? 1.0 : habits.$1 / habits.$2;
-    final studyRatio = (studyMinutes / _studyGoalMinutes).clamp(0.0, 1.0);
-    final overall = (taskRatio + habitRatio + studyRatio) / 3;
+    final goal = ref.watch(prefsProvider.select((p) => p.studyGoalMinutes));
+    final taskRatio = tasks.$2 == 0 ? 0.0 : tasks.$1 / tasks.$2;
+    final habitRatio = habits.$2 == 0 ? 0.0 : habits.$1 / habits.$2;
+    final studyRatio = (studyMinutes / goal).clamp(0.0, 1.0);
+    // Average only what applies today: no tasks due shouldn't count as "done".
+    final parts = [if (tasks.$2 > 0) taskRatio, if (habits.$2 > 0) habitRatio, studyRatio];
+    final overall = parts.fold(0.0, (a, b) => a + b) / parts.length;
+    final left = [
+      if (tasks.$2 - tasks.$1 > 0) '${tasks.$2 - tasks.$1} task${tasks.$2 - tasks.$1 == 1 ? '' : 's'}',
+      if (habits.$2 - habits.$1 > 0) '${habits.$2 - habits.$1} habit${habits.$2 - habits.$1 == 1 ? '' : 's'}',
+      if (studyMinutes < goal) '${formatMinutes((goal - studyMinutes).toDouble())} of study',
+    ];
+    final summary = left.isEmpty
+        ? 'Everything for today is done'
+        : '${left.length == 1 ? left.first : '${left.sublist(0, left.length - 1).join(', ')} and ${left.last}'} left';
 
     return GlassCard(
       radius: Radii.xl,
@@ -266,7 +276,9 @@ class _TodayCard extends ConsumerWidget {
                     const SizedBox(height: Space.xs),
                     AnimatedCounter(value: overall * 100, suffix: '%', style: LifeText.statHero),
                     const SizedBox(height: Space.xs),
-                    Text('of your day is done', style: LifeText.caption),
+                    Text('of today done', style: LifeText.caption),
+                    const SizedBox(height: Space.sm),
+                    Text(summary, style: LifeText.body.copyWith(color: LifeColors.text2)),
                   ],
                 ),
               ),
@@ -293,7 +305,11 @@ class _TodayCard extends ConsumerWidget {
               Expanded(child: _Legend(color: LifeColors.tasks, label: 'Tasks', value: '${tasks.$1}/${tasks.$2}')),
               Expanded(child: _Legend(color: LifeColors.habits, label: 'Habits', value: '${habits.$1}/${habits.$2}')),
               Expanded(
-                child: _Legend(color: LifeColors.learning, label: 'Study', value: formatMinutes(studyMinutes.toDouble())),
+                child: _Legend(
+                  color: LifeColors.learning,
+                  label: 'Study',
+                  value: '${formatMinutes(studyMinutes.toDouble())}/${formatMinutes(goal.toDouble())}',
+                ),
               ),
             ],
           ),

@@ -36,11 +36,12 @@ cd mobile
 flutter build apk --release --split-per-abi --target-platform android-arm64
 ```
 
-The APK is `mobile/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk` (~20 MB).
-Install it with the phone on USB:
+The APK is `mobile/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk` (~23 MB).
+Install it with the phone on USB (plain `flutter install --release` looks for the universal
+`app-release.apk`, which this command doesn't build):
 
 ```bash
-flutter install --release
+flutter install --use-application-binary build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
 ```
 
 Or copy the APK to the phone and open it (allow "Install unknown apps" for your file manager once).

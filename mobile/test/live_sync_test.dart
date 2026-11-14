@@ -116,6 +116,31 @@ void main() {
     expect(c.read(habitsProvider).single.doneOn(DateTime.now()), isFalse);
   });
 
+  test('journal: autosave edits and a late pull never create conflict copies', () async {
+    final e = JournalEntry(id: newId(), day: dateOnly(DateTime.now()), title: 'Day', content: 'one');
+    final journal = c.read(journalProvider.notifier);
+    final sync = c.read(syncEngineProvider);
+    journal.upsertEntry(e);
+    await sync.syncNow();
+
+    // A pull whose reply is built now but arrives after the next push.
+    api.pullDelay = const Duration(milliseconds: 300);
+    final latePull = sync.pull();
+    api.pullDelay = Duration.zero;
+    journal.upsertEntry(e.copyWith(content: 'one two'));
+    journal.upsertEntry(e.copyWith(content: 'one two three')); // merged with the previous edit
+    expect(sync.outbox, hasLength(1));
+    await sync.push();
+    await latePull;
+
+    // Reopen and edit again: must apply cleanly.
+    journal.upsertEntry(e.copyWith(content: 'one two three four'));
+    await sync.syncNow();
+    expect(api.conflicts, 0);
+    expect(api.live('journal_entries').single['content'], 'one two three four');
+    expect(c.read(journalProvider).entries.single.content, 'one two three four');
+  });
+
   test('assistant: chat → approve creates the task on the server', () async {
     await c.read(assistantProvider.notifier).send('add task revise graphs');
     final p = c.read(assistantProvider).pending.single;
