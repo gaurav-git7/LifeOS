@@ -16,10 +16,20 @@ jobs:
   backup:
     runs-on: ubuntu-latest
     steps:
-      - name: Install Postgres client
+      - name: Install pg_dump matching the server version
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
+          set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client
+          sudo apt-get install -y -qq postgresql-client postgresql-common
+          # pg_dump refuses to dump a newer server, so install the client for the
+          # server's major version (e.g. 17) from the official PostgreSQL apt repo.
+          MAJOR=$(psql "$DB_URL" -tAc "show server_version_num" | cut -c1-2)
+          echo "Server major version: $MAJOR"
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y > /dev/null
+          sudo apt-get install -y -qq "postgresql-client-$MAJOR"
+          echo "PG_DUMP=/usr/lib/postgresql/$MAJOR/bin/pg_dump" >> "$GITHUB_ENV"
       - name: Dump, compress, encrypt
         env:
           DB_URL: ${{ secrets.SUPABASE_DB_URL }}
@@ -27,7 +37,8 @@ jobs:
         run: |
           set -euo pipefail
           FILE="lifeos-$(date -u +%Y-%m-%d).sql.gz.gpg"
-          pg_dump "$DB_URL" --schema=app --no-owner --no-privileges | gzip -9 \
+          "$PG_DUMP" --version
+          "$PG_DUMP" "$DB_URL" --schema=app --no-owner --no-privileges | gzip -9 \
             | gpg --batch --yes --symmetric --cipher-algo AES256 --passphrase "$PASSPHRASE" -o "$FILE"
           ls -lh "$FILE"
           echo "FILE=$FILE" >> "$GITHUB_ENV"
