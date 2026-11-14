@@ -142,3 +142,18 @@ async def test_times_per_week_habit_streak_counts_weeks(client, user, session):
         assert r.status_code == 200, r.text
     habit = (await client.get(f"{API}/habits/{h['id']}", headers=user["h"])).json()
     assert habit["current_streak"] == 1  # this week isn't over, so it doesn't break it
+
+
+async def test_ai_rate_limit_per_person(client, user, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "AI_CALLS_PER_MINUTE", 1)
+    friend = auth(await register(client, "f@example.com", "Friend"))  # not admin
+    msg = {"message": "How should I balance study and gym this week?"}
+    first = (await client.post(f"{API}/agent/chat", json=msg, headers=friend)).json()
+    second = (await client.post(f"{API}/agent/chat", json=msg, headers=friend)).json()
+    assert first["used_ai"] is True
+    assert "Give me a minute" in second["message"]
+    for _ in range(2):  # the admin (first user) isn't limited
+        r = (await client.post(f"{API}/agent/chat", json=msg, headers=user["h"])).json()
+        assert "Give me a minute" not in r["message"]

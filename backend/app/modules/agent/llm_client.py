@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.config import settings
 from ...core.time import day_bounds_utc, local_today
+from ...core.types import utcnow
 from ...models import LlmCall, User, UserPreferences
 
 log = logging.getLogger("lifeos.llm")
@@ -90,6 +91,30 @@ async def spent_today(db: AsyncSession, user: User) -> float:
         )
         or 0.0
     )
+
+
+async def _calls_since(db: AsyncSession, user: User, since) -> int:
+    return int(
+        await db.scalar(
+            select(func.count(LlmCall.id)).where(
+                LlmCall.user_id == user.id,
+                LlmCall.created_at >= since,
+                LlmCall.status != "blocked_by_budget",
+            )
+        )
+        or 0
+    )
+
+
+async def check_rate(db: AsyncSession, user: User) -> None:
+    """Per-person limits so one friend can't use up the shared Gemini quota."""
+    if user.role == "admin":
+        return
+    if await _calls_since(db, user, utcnow() - timedelta(minutes=1)) >= settings.AI_CALLS_PER_MINUTE:
+        raise LLMFailed("per-minute limit", "slow_down")
+    start, _ = day_bounds_utc(local_today(user.timezone), user.timezone)
+    if await _calls_since(db, user, start) >= settings.AI_CALLS_PER_DAY:
+        raise LLMFailed("daily limit", "daily_limit")
 
 
 async def daily_budget(db: AsyncSession, user: User) -> float:
@@ -252,6 +277,7 @@ async def call_llm[T: BaseModel](
     """One structured call (+ one retry on invalid output). Raises BudgetExceeded / LLMFailed."""
     provider = settings.llm_provider
     model = model_for(tier) if provider == "gemini" else f"fake-{tier}"
+    await check_rate(db, user)
     if not await budget_left(db, user):
         db.add(
             LlmCall(

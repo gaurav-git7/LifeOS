@@ -14,6 +14,7 @@ from datetime import date, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...core.config import settings
 from ...core.database import session_factory
 from ...core.errors import AppError
 from ...core.serialize import jsonable
@@ -165,6 +166,11 @@ async def chat(db: AsyncSession, user: User, message: str, conversation_id: uuid
                 "key": "The assistant isn't set up correctly on the server (AI key problem).",
                 "model": "The assistant isn't set up correctly on the server (AI model unavailable).",
                 "output": "I got muddled answering that. Could you rephrase it?",
+                "slow_down": "That's a lot of messages at once. Give me a minute, then try again.",
+                "daily_limit": (
+                    f"You've used today's {settings.AI_CALLS_PER_DAY} assistant messages. "
+                    "It resets tomorrow; everything else in LifeOS still works."
+                ),
             }.get(e.kind, "I couldn't reach the AI just now. Please try again in a moment.")
             if user.role == "admin":  # the owner sees the real reason
                 reply += "\n\n[admin] " + f"{e.kind}: {str(e)[:300]}"

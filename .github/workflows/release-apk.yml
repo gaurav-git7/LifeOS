@@ -90,6 +90,8 @@ jobs:
 
       - name: Tell phones an update is out
         if: startsWith(github.ref, 'refs/tags/v')
+        # The release is already published; a failure here shouldn't fail the run.
+        continue-on-error: true
         env:
           API_URL: ${{ secrets.LIFEOS_API_URL }}
           JOB_SECRET: ${{ secrets.LIFEOS_JOB_SECRET }}
@@ -98,6 +100,16 @@ jobs:
           if [ -z "$API_URL" ] || [ -z "$JOB_SECRET" ]; then
             echo "::warning::LIFEOS_API_URL / LIFEOS_JOB_SECRET not set: no update notification sent"; exit 0
           fi
+          # Accept https://host, https://host/ or https://host/api/v1 in the secret.
+          BASE="${API_URL%/}"; BASE="${BASE%/api/v1}"
           URL="${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
-          # The free server may be asleep: give it time to wake up.
-          curl -fsS --retry 4 --retry-delay 20 --max-time 90 -X POST "$API_URL/internal/jobs/announce-release"             -H "X-Job-Secret: $JOB_SECRET" -H "Content-Type: application/json"             -d "{\"version\": \"$BUILD_NAME\", \"url\": \"$URL\"}"
+          # The free server may be asleep: wake it first.
+          curl -s -m 90 -o /dev/null "$BASE/health" || true
+          CODE=$(curl -s -m 90 -o /tmp/announce.txt -w "%{http_code}" -X POST "$BASE/internal/jobs/announce-release"             -H "X-Job-Secret: $JOB_SECRET" -H "Content-Type: application/json"             -d "{\"version\": \"$BUILD_NAME\", \"url\": \"$URL\"}")
+          echo "announce-release -> HTTP $CODE: $(cat /tmp/announce.txt)"
+          case "$CODE" in
+            200) ;;
+            404) echo "::warning::404: the server isn't running the latest backend (check the Render deploy) or LIFEOS_API_URL is wrong" ;;
+            401|403) echo "::warning::LIFEOS_JOB_SECRET doesn't match JOB_SECRET on Render" ;;
+            *) echo "::warning::Update notification failed (HTTP $CODE)" ;;
+          esac

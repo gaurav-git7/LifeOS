@@ -62,3 +62,14 @@ def test_group_streak_allows_one_miss_a_week():
     assert group_streak("FREQ=DAILY", 1, start, today, members, days) == 9
     days[today - timedelta(days=1)] = {"a"}  # second miss the same week: only the newest is forgiven
     assert group_streak("FREQ=DAILY", 1, start, today, members, days) == 1
+
+
+def test_leaderboard_ranks_by_week_then_streak():
+    from app.modules.social.router import leaderboard
+
+    today = date(2026, 11, 18)  # Wednesday
+    rows = [(today, "a"), (today - timedelta(days=1), "a"), (today, "b"), (today - timedelta(days=8), "b")]
+    out = leaderboard({"a", "b", "c"}, rows, today)
+    assert [r["user_id"] for r in out["leaderboard"]] == ["a", "b", "c"]
+    assert out["leaderboard"][0] == {"user_id": "a", "week": 2, "all_time": 2, "streak": 2}
+    assert out["last_week_winner"] == "b"

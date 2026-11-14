@@ -396,6 +396,7 @@ async def _group_out(db, g: FriendGroup, user: User) -> dict:
         ).scalars()
     )
     out_habits = []
+    all_checkins: list[tuple[date, uuid.UUID]] = []
     for h in habits:
         rows = await db.execute(
             select(GroupCheckin.day, GroupCheckin.user_id).where(
@@ -405,6 +406,7 @@ async def _group_out(db, g: FriendGroup, user: User) -> dict:
         by_day: dict[date, set] = {}
         for d, uid in rows:
             by_day.setdefault(d, set()).add(uid)
+            all_checkins.append((d, uid))
         start = h.created_at.date()
         out_habits.append(
             {
@@ -434,6 +436,39 @@ async def _group_out(db, g: FriendGroup, user: User) -> dict:
         "is_owner": g.owner_id == user.id,
         "members": [_person(m) for m in members],
         "habits": out_habits,
+        **leaderboard(member_ids, all_checkins, today),
+    }
+
+
+def leaderboard(member_ids: set, checkins: list[tuple[date, uuid.UUID]], today: date) -> dict:
+    """Check-ins per member this week (Mon–Sun) and all time, their current
+    streak (days in a row with at least one check-in; today still open), and
+    last week's winner. Sorted by this week, then streak."""
+    week = today - timedelta(days=today.weekday())
+    last_week = week - timedelta(days=7)
+    days_by: dict = {m: set() for m in member_ids}
+    rows = []
+    for m in member_ids:
+        mine = [d for d, u in checkins if u == m]
+        days_by[m] = set(mine)
+        streak, day = 0, today if today in days_by[m] else today - timedelta(days=1)
+        while day in days_by[m]:
+            streak += 1
+            day -= timedelta(days=1)
+        rows.append(
+            {
+                "user_id": str(m),
+                "week": sum(1 for d in mine if d >= week),
+                "last_week": sum(1 for d in mine if last_week <= d < week),
+                "all_time": len(mine),
+                "streak": streak,
+            }
+        )
+    rows.sort(key=lambda r: (-r["week"], -r["streak"], -r["all_time"]))
+    best = max(rows, key=lambda r: r["last_week"], default=None)
+    return {
+        "leaderboard": [{k: v for k, v in r.items() if k != "last_week"} for r in rows],
+        "last_week_winner": best["user_id"] if best and best["last_week"] > 0 else None,
     }
 
 

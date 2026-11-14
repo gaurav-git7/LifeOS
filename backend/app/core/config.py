@@ -52,6 +52,9 @@ class Settings(BaseSettings):
         }
     )
     AI_DAILY_BUDGET_USD: float = 0.10
+    # Per-person caps on AI calls (admins are exempt). Protects the shared Gemini key.
+    AI_CALLS_PER_MINUTE: int = 4
+    AI_CALLS_PER_DAY: int = 40
     LLM_PROVIDER: Literal["auto", "gemini", "fake"] = "auto"  # auto = gemini if key set, else fake
 
     # Notifications

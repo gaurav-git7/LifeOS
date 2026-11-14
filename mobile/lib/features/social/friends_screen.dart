@@ -419,8 +419,89 @@ class GroupCard extends ConsumerWidget {
                 ],
               ),
             ),
+          if (!compact && group.members.length > 1 && group.leaderboard.isNotEmpty) ...[
+            const SizedBox(height: Space.lg),
+            _Leaderboard(group: group, myId: myId),
+          ],
         ],
       ),
+    );
+  }
+}
+
+/// Who's checked in most. "This week" resets every Monday.
+class _Leaderboard extends StatefulWidget {
+  const _Leaderboard({required this.group, required this.myId});
+
+  final Group group;
+  final String? myId;
+
+  @override
+  State<_Leaderboard> createState() => _LeaderboardState();
+}
+
+class _LeaderboardState extends State<_Leaderboard> {
+  bool _allTime = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final people = {for (final m in widget.group.members) m.id: m};
+    final rows = [...widget.group.leaderboard];
+    if (_allTime) rows.sort((a, b) => b.allTime.compareTo(a.allTime));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Icon(LucideIcons.trophy, size: 16, color: LifeColors.amber),
+            const SizedBox(width: Space.sm),
+            Expanded(child: Text('Leaderboard', style: LifeText.label)),
+            // One chip that flips between the two views (fits narrow phones).
+            GlassChip(
+              data: FilterChipData(_allTime ? 'All time' : 'This week', icon: LucideIcons.arrowLeftRight),
+              selected: true,
+              onTap: () => setState(() => _allTime = !_allTime),
+            ),
+          ],
+        ),
+        const SizedBox(height: Space.sm),
+        for (final (i, r) in rows.indexed)
+          if (people[r.userId] != null)
+            Container(
+              margin: const EdgeInsets.only(top: Space.xs),
+              padding: const EdgeInsets.symmetric(horizontal: Space.md, vertical: Space.sm),
+              decoration: BoxDecoration(
+                color: r.userId == widget.myId ? LifeColors.glassHigh : null,
+                borderRadius: BorderRadius.circular(Radii.md),
+              ),
+              child: Row(
+                children: [
+                  SizedBox(width: 22, child: Text('${i + 1}', style: LifeText.mono)),
+                  _Avatar(people[r.userId]!, size: 26),
+                  const SizedBox(width: Space.sm),
+                  Expanded(
+                    child: Text(
+                      '${r.userId == widget.myId ? 'You' : people[r.userId]!.name}'
+                      '${widget.group.lastWeekWinner == r.userId ? ' 👑' : ''}',
+                      style: LifeText.body,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (r.streak > 1) ...[
+                    const Icon(LucideIcons.flame, size: 13, color: LifeColors.amber),
+                    Text('${r.streak}', style: LifeText.mono.copyWith(fontSize: 11)),
+                    const SizedBox(width: Space.md),
+                  ],
+                  Text('${_allTime ? r.allTime : r.week}', style: LifeText.stat.copyWith(fontSize: 18)),
+                ],
+              ),
+            ),
+        if (widget.group.lastWeekWinner != null)
+          Padding(
+            padding: const EdgeInsets.only(top: Space.sm),
+            child: Text('👑 most check-ins last week', style: LifeText.caption),
+          ),
+      ],
     );
   }
 }

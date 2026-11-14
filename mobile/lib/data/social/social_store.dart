@@ -61,6 +61,14 @@ class GroupHabitView {
   final int streak;
 }
 
+class LeaderRow {
+  const LeaderRow({required this.userId, required this.week, required this.allTime, required this.streak});
+  final String userId;
+  final int week;
+  final int allTime;
+  final int streak;
+}
+
 class Group {
   const Group({
     required this.id,
@@ -69,6 +77,8 @@ class Group {
     required this.isOwner,
     required this.members,
     required this.habits,
+    this.leaderboard = const [],
+    this.lastWeekWinner,
   });
   final String id;
   final String name;
@@ -76,6 +86,8 @@ class Group {
   final bool isOwner;
   final List<Person> members;
   final List<GroupHabitView> habits;
+  final List<LeaderRow> leaderboard; // sorted by this week, then streak
+  final String? lastWeekWinner;
 
   static Group fromJson(Map<String, dynamic> j) => Group(
         id: j['id'] as String,
@@ -96,6 +108,16 @@ class Group {
               streak: h['group_streak'] as int? ?? 0,
             ),
         ],
+        leaderboard: [
+          for (final r in ((j['leaderboard'] as List?) ?? const []).cast<Map>())
+            LeaderRow(
+              userId: r['user_id'] as String,
+              week: r['week'] as int? ?? 0,
+              allTime: r['all_time'] as int? ?? 0,
+              streak: r['streak'] as int? ?? 0,
+            ),
+        ],
+        lastWeekWinner: j['last_week_winner'] as String?,
       );
 }
 
@@ -232,6 +254,8 @@ class SocialNotifier extends Notifier<SocialState> {
             inviteCode: g.inviteCode,
             isOwner: g.isOwner,
             members: g.members,
+            leaderboard: g.leaderboard,
+            lastWeekWinner: g.lastWeekWinner,
             habits: [
               for (final h in g.habits)
                 h.id == habitId
