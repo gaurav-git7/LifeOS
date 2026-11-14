@@ -7,6 +7,7 @@ import '../../../core/widgets/widgets.dart';
 import '../../../data/models.dart';
 import '../../../data/seed.dart';
 import '../../../data/stores.dart';
+import '../../../shared/create_sheets.dart';
 import '../../../shared/task_editor_sheet.dart';
 import '../../../shared/task_tile.dart';
 import '../../../shared/week_strip.dart';
@@ -80,7 +81,35 @@ class _CalendarViewState extends ConsumerState<CalendarView> {
           SectionHeader(
             title: DateFormat('EEEE, d MMMM').format(_selected),
             action: '+ Add',
-            onAction: () => showTaskEditor(context, defaultDue: _selected),
+            onAction: () => showGlassSheet<void>(
+              context,
+              title: 'Add to ${DateFormat('EEE d MMM').format(_selected)}',
+              builder: (sheet) => Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  GradientButton(
+                    label: 'Task',
+                    icon: LucideIcons.squareCheck,
+                    expand: true,
+                    onPressed: () {
+                      Navigator.of(sheet).pop();
+                      showTaskEditor(context, defaultDue: _selected);
+                    },
+                  ),
+                  const SizedBox(height: Space.sm),
+                  GradientButton(
+                    label: 'Block time',
+                    icon: LucideIcons.calendarClock,
+                    variant: ButtonVariant.glass,
+                    expand: true,
+                    onPressed: () {
+                      Navigator.of(sheet).pop();
+                      showBlockEditor(context, _selected);
+                    },
+                  ),
+                ],
+              ),
+            ),
           ),
           if (agenda.isEmpty && untimed.isEmpty)
             const GlassCard(child: EmptyState(icon: LucideIcons.calendarDays, title: 'A free day', message: 'Nothing scheduled yet.'))

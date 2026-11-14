@@ -15,8 +15,9 @@ abstract final class Space {
   static const cardGap = 12.0;
   static const section = 24.0;
 
-  /// Bottom padding so content clears the floating nav bar.
-  static const navClearance = 120.0;
+  /// Bottom padding so content clears the floating nav bar (64 + 10)
+  /// and the + button above it (56 + 12), plus breathing room.
+  static const navClearance = 160.0;
 }
 
 abstract final class Radii {

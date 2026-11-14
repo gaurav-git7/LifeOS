@@ -6,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../../data/models.dart';
 import '../../../data/stores.dart';
+import '../../../shared/create_sheets.dart';
 import '../../../shared/task_tile.dart';
 
 /// Goals tab: progress per goal; tap for milestones and linked tasks.
@@ -87,6 +88,13 @@ class GoalsView extends ConsumerWidget {
                 ),
               ),
             ),
+          GradientButton(
+            label: 'New goal',
+            icon: LucideIcons.plus,
+            variant: ButtonVariant.glass,
+            expand: true,
+            onPressed: () => showGoalEditor(context),
+          ),
         ],
       ),
     );
@@ -104,7 +112,8 @@ class _GoalDetail extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final g = ref.watch(goalsProvider).firstWhere((x) => x.id == goalId);
+    final g = ref.watch(goalsProvider).where((x) => x.id == goalId).firstOrNull;
+    if (g == null) return const SizedBox.shrink();
     final tasks = ref.watch(tasksProvider);
     final linked = tasks.where((t) => t.goalId == g.id).toList();
     final progress = goalProgress(g, tasks);
@@ -176,12 +185,34 @@ class _GoalDetail extends ConsumerWidget {
                   ],
                 ),
             ],
+            if (g.progressType != GoalProgressType.numeric)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: GradientButton(
+                  label: 'Add milestone',
+                  icon: LucideIcons.plus,
+                  variant: ButtonVariant.ghost,
+                  compact: true,
+                  onPressed: () => showMilestoneAdder(context, goalId: g.id),
+                ),
+              ),
             if (linked.isNotEmpty) ...[
               const SizedBox(height: Space.xl),
               Text('Linked tasks', style: LifeText.eyebrow),
               const SizedBox(height: Space.sm),
               TaskGroupCard(tasks: linked, showDay: true),
             ],
+            const SizedBox(height: Space.xl),
+            GradientButton(
+              label: 'Delete goal',
+              icon: LucideIcons.trash2,
+              variant: ButtonVariant.danger,
+              expand: true,
+              onPressed: () {
+                ref.read(goalsProvider.notifier).remove(g.id);
+                Navigator.of(context).pop();
+              },
+            ),
           ],
         ),
       ),

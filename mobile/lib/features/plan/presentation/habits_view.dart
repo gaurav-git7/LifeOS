@@ -23,22 +23,6 @@ class HabitsView extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              const SizedBox(width: 44 + Space.md),
-              const Spacer(),
-              for (final day in days)
-                SizedBox(
-                  width: 30,
-                  child: Text(
-                    DateFormat('E').format(day).substring(0, 1),
-                    textAlign: TextAlign.center,
-                    style: LifeText.caption.copyWith(color: sameDay(day, today) ? LifeColors.text : LifeColors.text3),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: Space.sm),
           for (final (i, h) in habits.indexed)
             StaggeredEntry(
               index: i,
@@ -47,50 +31,91 @@ class HabitsView extends ConsumerWidget {
                 child: GlassCard(
                   padding: const EdgeInsets.all(Space.lg),
                   onTap: () => showGlassSheet<void>(context, builder: (_) => _HabitDetail(habitId: h.id)),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      IconChip(icon: h.icon, color: h.color, size: 44),
-                      const SizedBox(width: Space.md),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(h.title, style: LifeText.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
-                            Row(
+                      Row(
+                        children: [
+                          IconChip(icon: h.icon, color: h.color, size: 40),
+                          const SizedBox(width: Space.md),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Icon(LucideIcons.flame, size: 13, color: LifeColors.amber),
-                                const SizedBox(width: 3),
-                                Text('${h.streak} days', style: LifeText.mono),
+                                Text(h.title, style: LifeText.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                Row(
+                                  children: [
+                                    const Icon(LucideIcons.flame, size: 13, color: LifeColors.amber),
+                                    const SizedBox(width: 3),
+                                    Text('${h.streak}-day streak', style: LifeText.mono),
+                                  ],
+                                ),
                               ],
                             ),
-                          ],
-                        ),
-                      ),
-                      for (final day in days)
-                        SizedBox(
-                          width: 30,
-                          child: Center(
+                          ),
+                          // Big target for today's check-in
+                          Semantics(
+                            button: true,
+                            checked: h.doneOn(today),
+                            label: '${h.title} today',
                             child: GestureDetector(
-                              onTap: () => ref.read(habitsProvider.notifier).toggle(h.id, day),
+                              onTap: () => ref.read(habitsProvider.notifier).toggle(h.id),
                               child: AnimatedContainer(
                                 duration: d,
-                                width: sameDay(day, today) ? 24 : 18,
-                                height: sameDay(day, today) ? 24 : 18,
+                                width: 44,
+                                height: 44,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: h.doneOn(day) ? h.color : Colors.transparent,
-                                  border: Border.all(
-                                    color: h.doneOn(day) ? Colors.transparent : (sameDay(day, today) ? Colors.white54 : LifeColors.glassBorder),
-                                    width: 1.4,
-                                  ),
+                                  color: h.doneOn(today) ? h.color : LifeColors.glassHigh,
+                                  border: Border.all(color: h.doneOn(today) ? Colors.transparent : Colors.white38, width: 1.4),
                                 ),
-                                child: h.doneOn(day) && sameDay(day, today)
-                                    ? const Icon(Icons.check_rounded, size: 15, color: LifeColors.onLight)
-                                    : null,
+                                child: Icon(
+                                  Icons.check_rounded,
+                                  size: 22,
+                                  color: h.doneOn(today) ? LifeColors.onLight : LifeColors.text3,
+                                ),
                               ),
                             ),
                           ),
-                        ),
+                        ],
+                      ),
+                      const SizedBox(height: Space.md),
+                      Row(
+                        children: [
+                          for (final day in days)
+                            Expanded(
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () => ref.read(habitsProvider.notifier).toggle(h.id, day),
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      DateFormat('E').format(day).substring(0, 1),
+                                      style: LifeText.caption.copyWith(
+                                        fontSize: 11,
+                                        color: sameDay(day, today) ? LifeColors.text : LifeColors.text3,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    AnimatedContainer(
+                                      duration: d,
+                                      width: 20,
+                                      height: 20,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: h.doneOn(day) ? h.color : Colors.transparent,
+                                        border: Border.all(
+                                          color: h.doneOn(day) ? Colors.transparent : LifeColors.glassBorder,
+                                          width: 1.4,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                     ],
                   ),
                 ),

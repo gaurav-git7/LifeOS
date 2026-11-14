@@ -88,18 +88,17 @@ async def goal_progress(db: AsyncSession, goal: Goal) -> float:
         return max(0.0, min(1.0, (goal.current_value or 0) / goal.target_value))
     if goal.progress_type == "boolean":
         return 0.0
+    ms = select(func.count()).where(GoalMilestone.goal_id == goal.id, GoalMilestone.deleted_at.is_(None))
+    ms_total = await db.scalar(ms) or 0
+    ms_done = await db.scalar(ms.where(GoalMilestone.completed_at.is_not(None))) or 0
     if goal.progress_type == "milestones":
-        base = select(func.count()).where(
-            GoalMilestone.goal_id == goal.id, GoalMilestone.deleted_at.is_(None)
-        )
-        total = await db.scalar(base) or 0
-        done = await db.scalar(base.where(GoalMilestone.completed_at.is_not(None))) or 0
-        return done / total if total else 0.0
+        return ms_done / ms_total if ms_total else 0.0
+    # "tasks": linked tasks and milestones both count (matches the app).
     base = select(func.count()).where(
         Task.goal_id == goal.id, Task.deleted_at.is_(None), Task.status != "cancelled"
     )
-    total = await db.scalar(base) or 0
-    done = await db.scalar(base.where(Task.status == "done")) or 0
+    total = (await db.scalar(base) or 0) + ms_total
+    done = (await db.scalar(base.where(Task.status == "done")) or 0) + ms_done
     return done / total if total else 0.0
 
 

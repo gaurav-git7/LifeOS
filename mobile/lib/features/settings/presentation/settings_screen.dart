@@ -2,11 +2,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/routing/routes.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../../data/stores.dart';
+import '../../../data/sync/sync_engine.dart';
 
 /// Settings. See docs/UI_UX.md §9.6.
 class SettingsScreen extends ConsumerWidget {
@@ -210,6 +212,7 @@ class SettingsScreen extends ConsumerWidget {
                 ]),
 
                 _Section('Your data', [
+                  if (auth.live) const _SyncRow(),
                   _NavRow(
                     icon: LucideIcons.download,
                     color: LifeColors.mint,
@@ -227,7 +230,7 @@ class SettingsScreen extends ConsumerWidget {
                 ]),
 
                 _Section('About', [
-                  const _InfoRow(text: 'LifeOS 0.1.0 · sample data mode'),
+                  _InfoRow(text: 'LifeOS 0.1.0 · ${auth.live ? 'synced with your account' : 'sample data on this phone'}'),
                   if (kDebugMode)
                     _NavRow(
                       icon: LucideIcons.layoutGrid,
@@ -239,7 +242,7 @@ class SettingsScreen extends ConsumerWidget {
 
                 const SizedBox(height: Space.section),
                 GradientButton(
-                  label: 'Sign out',
+                  label: auth.live ? 'Sign out' : 'Leave sample mode',
                   icon: LucideIcons.logOut,
                   variant: ButtonVariant.glass,
                   expand: true,
@@ -323,7 +326,9 @@ class SettingsScreen extends ConsumerWidget {
         ],
       ),
     );
-    if (ok == true) ref.read(authProvider.notifier).signOut();
+    if (ok != true) return;
+    final err = await ref.read(authProvider.notifier).deleteAccount();
+    if (err != null && context.mounted) _toast(context, err);
   }
 }
 
@@ -437,4 +442,29 @@ class _InfoRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: Space.md),
         child: Text(text, style: LifeText.caption),
       );
+}
+
+/// Sync state + "Sync now".
+class _SyncRow extends ConsumerWidget {
+  const _SyncRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(syncStatusProvider);
+    final status = switch (s.phase) {
+      SyncPhase.syncing => 'Syncing…',
+      SyncPhase.offline => s.pending > 0 ? 'Offline · ${s.pending} waiting' : 'Offline',
+      SyncPhase.error => s.message ?? 'Sync problem',
+      SyncPhase.idle => s.pending > 0
+          ? '${s.pending} waiting'
+          : (s.lastSync == null ? 'Not synced yet' : 'Synced ${DateFormat('HH:mm').format(s.lastSync!)}'),
+    };
+    return _NavRow(
+      icon: LucideIcons.refreshCw,
+      color: s.phase == SyncPhase.error ? LifeColors.danger : LifeColors.sky,
+      title: 'Sync now',
+      trailing: status,
+      onTap: () => ref.read(syncEngineProvider).syncNow(),
+    );
+  }
 }

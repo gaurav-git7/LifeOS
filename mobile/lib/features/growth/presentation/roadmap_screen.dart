@@ -9,6 +9,7 @@ import '../../../core/widgets/widgets.dart';
 import '../../../data/models.dart';
 import '../../../data/seed.dart';
 import '../../../data/stores.dart';
+import '../../../shared/create_sheets.dart';
 
 /// A learning path as a vertical progression. See docs/UI_UX.md §9.3 (Roadmaps).
 class RoadmapScreen extends ConsumerWidget {
@@ -33,6 +34,32 @@ class RoadmapScreen extends ConsumerWidget {
                       Row(
                         children: [
                           IconGlassButton(icon: Icons.arrow_back_rounded, semanticLabel: 'Back', onPressed: () => context.pop()),
+                          const Spacer(),
+                          IconGlassButton(
+                            icon: LucideIcons.trash2,
+                            semanticLabel: 'Delete roadmap',
+                            onPressed: () async {
+                              final ok = await showDialog<bool>(
+                                context: context,
+                                builder: (c) => AlertDialog(
+                                  backgroundColor: LifeColors.surfaceHigh,
+                                  title: Text('Delete this roadmap?', style: LifeText.h2),
+                                  content: Text('Its topics and progress are removed.', style: LifeText.body),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(c, true),
+                                      child: const Text('Delete', style: TextStyle(color: LifeColors.danger)),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (ok == true && context.mounted) {
+                                ref.read(learningProvider.notifier).removePath(pathId);
+                                context.pop();
+                              }
+                            },
+                          ),
                         ],
                       ),
                       const SizedBox(height: Space.lg),
@@ -66,6 +93,14 @@ class RoadmapScreen extends ConsumerWidget {
                             ),
                           ),
                         ),
+                      const SizedBox(height: Space.md),
+                      GradientButton(
+                        label: 'Add topic',
+                        icon: LucideIcons.plus,
+                        variant: ButtonVariant.glass,
+                        expand: true,
+                        onPressed: () => showTopicAdder(context, path.id),
+                      ),
                     ],
                   ),
           ),

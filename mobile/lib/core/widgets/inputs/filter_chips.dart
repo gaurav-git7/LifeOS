@@ -35,6 +35,8 @@ class FilterChipRow extends StatelessWidget {
       height: 38,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
+        // Chip rows are short: build every chip so all are reachable (and announced by screen readers).
+        cacheExtent: 2000,
         padding: padding,
         itemCount: chips.length,
         separatorBuilder: (_, _) => const SizedBox(width: Space.sm),

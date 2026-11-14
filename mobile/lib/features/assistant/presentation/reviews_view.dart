@@ -53,6 +53,8 @@ class _Daily extends ConsumerWidget {
     final overdue = tasks.where((t) => t.isOverdue(now)).toList();
     final habitsDone = habits.where((h) => h.doneOn(now)).length;
     final study = learning.minutesOn(now);
+    final live = ref.watch(authProvider.select((a) => a.live));
+    final review = ref.watch(reviewsProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -66,15 +68,16 @@ class _Daily extends ConsumerWidget {
                 children: [
                   const AiMark(size: 26),
                   const SizedBox(width: Space.sm),
-                  Text('Daily review', style: LifeText.label),
-                  const Spacer(),
+                  Expanded(child: Text('Daily review', style: LifeText.label, overflow: TextOverflow.ellipsis)),
                   Text(DateFormat('EEE d MMM').format(now), style: LifeText.mono),
                 ],
               ),
               const SizedBox(height: Space.md),
               Text(
-                'Solid day — ${doneToday.length} tasks done and ${formatMinutes(study.toDouble())} of study. '
-                '${overdue.isEmpty ? 'Nothing is overdue.' : '${overdue.length} item${overdue.length == 1 ? '' : 's'} slipped; I suggested a realistic fix for tomorrow.'}',
+                live && review.insight != null
+                    ? review.insight!
+                    : '${doneToday.isEmpty ? 'A quiet day so far' : 'Solid day'} — ${doneToday.length} tasks done and ${formatMinutes(study.toDouble())} of study. '
+                        '${overdue.isEmpty ? 'Nothing is overdue.' : '${overdue.length} item${overdue.length == 1 ? '' : 's'} slipped${live ? '.' : '; I suggested a realistic fix for tomorrow.'}'}',
                 style: LifeText.titleSerif.copyWith(fontSize: 22, height: 1.25),
               ),
             ],
@@ -131,18 +134,20 @@ class _Daily extends ConsumerWidget {
           title: 'Went well',
           icon: LucideIcons.sparkles,
           color: LifeColors.mint,
-          items: [
-            for (final t in doneToday.take(3)) t.title,
-            if (study >= 60) 'Over an hour of focused study',
-          ],
+          items: live && review.highlights.isNotEmpty
+              ? review.highlights
+              : [
+                  for (final t in doneToday.take(3)) t.title,
+                  if (study >= 60) 'Over an hour of focused study',
+                ],
         ),
-        if (overdue.isNotEmpty) ...[
+        if (overdue.isNotEmpty || (live && review.attention.isNotEmpty)) ...[
           const SizedBox(height: Space.cardGap),
           _ListCard(
             title: 'Needs care',
             icon: LucideIcons.circleAlert,
             color: LifeColors.amber,
-            items: [for (final t in overdue) '${t.title} (overdue)'],
+            items: live && review.attention.isNotEmpty ? review.attention : [for (final t in overdue) '${t.title} (overdue)'],
           ),
         ],
         if (proposals.isNotEmpty) ...[
@@ -164,10 +169,22 @@ class _Weekly extends ConsumerWidget {
     final tasks = ref.watch(tasksProvider);
     final learning = ref.watch(learningProvider);
     final habits = ref.watch(habitsProvider);
+    final live = ref.watch(authProvider.select((a) => a.live));
+    final review = ref.watch(reviewsProvider);
     final days = [for (var i = 6; i >= 0; i--) dateOnly(now.subtract(Duration(days: i)))];
     final perDay = [
-      for (final d in days) tasks.where((t) => t.done && t.completedAt != null && sameDay(t.completedAt!, d)).length.toDouble() + (d == days.last ? 0 : (3 + d.day % 4)),
+      for (final d in days)
+        tasks.where((t) => t.done && t.completedAt != null && sameDay(t.completedAt!, d)).length.toDouble() +
+            // sample mode pads past days so the chart has a shape
+            (live || d == days.last ? 0 : (3 + d.day % 4)),
     ];
+    const sampleNext = [
+      'Keep DSA mornings — finish sliding window, start stacks.',
+      'Two 45-minute Docker sessions (Tue, Thu).',
+      'Move resume updates to Monday afternoon.',
+      'Protect sleep before the mock interview.',
+    ];
+    final next = live ? review.recommendations : sampleNext;
     final study = days.fold(0, (a, d) => a + learning.minutesOn(d));
     final consistency = habits.isEmpty
         ? 0.0
@@ -185,15 +202,24 @@ class _Weekly extends ConsumerWidget {
                 children: [
                   const AiMark(size: 26),
                   const SizedBox(width: Space.sm),
-                  Text('Weekly review', style: LifeText.label),
-                  const Spacer(),
-                  Text('${DateFormat('d MMM').format(days.first)} – ${DateFormat('d MMM').format(days.last)}', style: LifeText.mono),
+                  Expanded(child: Text('Weekly review', style: LifeText.label, overflow: TextOverflow.ellipsis)),
+                  Flexible(
+                    child: Text(
+                      '${DateFormat('d MMM').format(days.first)} – ${DateFormat('d MMM').format(days.last)}',
+                      style: LifeText.mono,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: Space.md),
               Text(
-                'Your best study week this month: ${formatMinutes(study.toDouble())}, mostly DSA. '
-                'Habits held at ${(consistency * 100).round()}%. Docker slowed down mid-week — two short sessions would get it moving again.',
+                live
+                    ? (review.weeklyReport ??
+                        'This week: ${formatMinutes(study.toDouble())} of study and ${perDay.fold(0.0, (a, b) => a + b).round()} tasks done. '
+                            'Habits held at ${(consistency * 100).round()}%. Your full weekly review arrives on Sunday evening.')
+                    : 'Your best study week this month: ${formatMinutes(study.toDouble())}, mostly DSA. '
+                        'Habits held at ${(consistency * 100).round()}%. Docker slowed down mid-week — two short sessions would get it moving again.',
                 style: LifeText.body,
               ),
             ],
@@ -202,9 +228,9 @@ class _Weekly extends ConsumerWidget {
         const SizedBox(height: Space.cardGap),
         Row(
           children: [
-            Expanded(child: AnimatedStatCard(label: 'Study', value: study, icon: LucideIcons.timer, accent: LifeColors.mint, format: formatMinutes, trend: 0.18)),
+            Expanded(child: AnimatedStatCard(label: 'Study', value: study, icon: LucideIcons.timer, accent: LifeColors.mint, format: formatMinutes, trend: live ? null : 0.18)),
             const SizedBox(width: Space.cardGap),
-            Expanded(child: AnimatedStatCard(label: 'Habits', value: consistency * 100, suffix: '%', icon: LucideIcons.flame, accent: LifeColors.coral, trend: 0.04)),
+            Expanded(child: AnimatedStatCard(label: 'Habits', value: consistency * 100, suffix: '%', icon: LucideIcons.flame, accent: LifeColors.coral, trend: live ? null : 0.04)),
           ],
         ),
         const SizedBox(height: Space.cardGap),
@@ -230,12 +256,21 @@ class _Weekly extends ConsumerWidget {
             children: [
               Text('Next week', style: LifeText.title),
               const SizedBox(height: Space.md),
-              for (final (i, r) in const [
-                'Keep DSA mornings — finish sliding window, start stacks.',
-                'Two 45-minute Docker sessions (Tue, Thu).',
-                'Move resume updates to Monday afternoon.',
-                'Protect sleep before the mock interview.',
-              ].indexed)
+              if (next.isEmpty)
+                GradientButton(
+                  label: 'Generate my weekly review',
+                  icon: LucideIcons.sparkles,
+                  variant: ButtonVariant.glass,
+                  expand: true,
+                  loading: review.busy,
+                  onPressed: () async {
+                    final err = await ref.read(reviewsProvider.notifier).runWeekly();
+                    if (err != null && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+                    }
+                  },
+                ),
+              for (final (i, r) in next.indexed)
                 Padding(
                   padding: const EdgeInsets.only(bottom: Space.md),
                   child: Row(

@@ -64,7 +64,15 @@ class GradientButton extends StatelessWidget {
         else if (icon != null)
           Icon(icon, size: 17, color: fg),
         if (loading || icon != null) const SizedBox(width: Space.sm),
-        Text(label, style: LifeText.label.copyWith(color: fg, fontWeight: FontWeight.w600, fontSize: compact ? 13 : 15)),
+        // Flexible: on narrow screens a long label shortens instead of overflowing.
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: LifeText.label.copyWith(color: fg, fontWeight: FontWeight.w600, fontSize: compact ? 13 : 15),
+          ),
+        ),
       ],
     );
 

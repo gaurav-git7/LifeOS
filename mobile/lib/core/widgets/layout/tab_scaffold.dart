@@ -54,7 +54,8 @@ class TabScaffold extends StatelessWidget {
           ),
         ),
         ...slivers,
-        const SliverToBoxAdapter(child: SizedBox(height: Space.navClearance)),
+        // Clears the floating tab bar, the + button above it, and the system nav bar.
+        SliverToBoxAdapter(child: SizedBox(height: Space.navClearance + MediaQuery.paddingOf(context).bottom)),
       ],
     );
   }

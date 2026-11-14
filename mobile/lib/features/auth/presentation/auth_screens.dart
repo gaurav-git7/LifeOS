@@ -125,6 +125,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   String? _error;
 
   @override
+  void initState() {
+    super.initState();
+    final auth = ref.read(authProvider);
+    _email.text = auth.email;
+    _error = auth.notice;
+  }
+
+  @override
   void dispose() {
     _email.dispose();
     _password.dispose();
@@ -152,12 +160,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     return _AuthScaffold(
       title: 'Welcome back',
       subtitle: 'Sign in to your LifeOS',
-      footer: Wrap(
-        alignment: WrapAlignment.center,
-        crossAxisAlignment: WrapCrossAlignment.center,
+      footer: Column(
         children: [
-          Text('New here?', style: LifeText.body.copyWith(color: LifeColors.text2)),
-          GradientButton(label: 'Create an account', variant: ButtonVariant.ghost, compact: true, onPressed: () => context.go(Routes.register)),
+          Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text('New here?', style: LifeText.body.copyWith(color: LifeColors.text2)),
+              GradientButton(label: 'Create an account', variant: ButtonVariant.ghost, compact: true, onPressed: () => context.go(Routes.register)),
+            ],
+          ),
+          const _SampleDataButton(),
         ],
       ),
       child: AutofillGroup(
@@ -187,6 +200,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             _ErrorText(_error),
             const SizedBox(height: Space.md),
             GradientButton(label: 'Sign in', expand: true, loading: _loading, onPressed: _submit),
+            if (_loading) const _WakeHint(),
           ],
         ),
       ),
@@ -243,7 +257,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       _loading = true;
       _error = null;
     });
-    final err = await ref.read(authProvider.notifier).register(_name.text.trim(), _email.text.trim(), _password.text);
+    final err = await ref
+        .read(authProvider.notifier)
+        .register(_name.text.trim(), _email.text.trim(), _password.text, inviteCode: _invite.text.trim());
     if (mounted) {
       setState(() {
       _loading = false;
@@ -324,6 +340,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             _ErrorText(_error),
             const SizedBox(height: Space.md),
             GradientButton(label: 'Create account', expand: true, loading: _loading, onPressed: _submit),
+            if (_loading) const _WakeHint(),
             const SizedBox(height: Space.md),
             Text(
               'Your journal and mood stay private. AI only sees them if you turn that on.',
@@ -339,14 +356,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
 // ---------------------------------------------------------------- forgot
 
-class ForgotPasswordScreen extends StatefulWidget {
+class ForgotPasswordScreen extends ConsumerStatefulWidget {
   const ForgotPasswordScreen({super.key});
 
   @override
-  State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
+  ConsumerState<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
 }
 
-class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
+class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
   final _email = TextEditingController();
   bool _loading = false;
   bool _sent = false;
@@ -364,12 +381,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       _loading = true;
       _error = null;
     });
-    await Future<void>.delayed(const Duration(milliseconds: 700));
+    final err = await ref.read(authProvider.notifier).forgotPassword(_email.text.trim());
     if (mounted) {
       setState(() {
-      _loading = false;
-      _sent = true;
-    });
+        _loading = false;
+        _sent = err == null;
+        _error = err;
+      });
     }
   }
 
@@ -416,4 +434,49 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       ),
     );
   }
+}
+
+/// Shown while waiting: the free server sleeps when idle.
+class _WakeHint extends StatelessWidget {
+  const _WakeHint();
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(top: Space.md),
+        child: Text(
+          'The server may take up to a minute to wake up the first time.',
+          textAlign: TextAlign.center,
+          style: LifeText.caption,
+        ),
+      );
+}
+
+/// Try the app without an account. Everything stays on this phone.
+class _SampleDataButton extends ConsumerWidget {
+  const _SampleDataButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => GradientButton(
+        label: 'Explore with sample data',
+        icon: LucideIcons.sparkles,
+        variant: ButtonVariant.ghost,
+        compact: true,
+        onPressed: () => ref.read(authProvider.notifier).useSampleData(),
+      );
+}
+
+/// While the saved session is being restored (a few milliseconds, offline-first).
+class SplashScreen extends StatelessWidget {
+  const SplashScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+        backgroundColor: LifeColors.bg,
+        body: Stack(
+          children: [
+            Positioned.fill(child: AmbientBackground(mode: AmbientMode.home)),
+            Center(child: AiMark(size: 96)),
+          ],
+        ),
+      );
 }

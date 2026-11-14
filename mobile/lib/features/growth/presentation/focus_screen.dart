@@ -200,17 +200,16 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                   ),
                   const Spacer(),
                   if (_elapsed == 0)
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: Space.sm,
+                      runSpacing: Space.sm,
                       children: [
                         for (final p in _presets)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                            child: GlassChip(
-                              data: FilterChipData('$p min'),
-                              selected: _minutes == p,
-                              onTap: () => setState(() => _minutes = p),
-                            ),
+                          GlassChip(
+                            data: FilterChipData('$p min'),
+                            selected: _minutes == p,
+                            onTap: () => setState(() => _minutes = p),
                           ),
                       ],
                     ),

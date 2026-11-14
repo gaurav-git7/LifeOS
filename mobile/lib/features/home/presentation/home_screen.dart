@@ -127,6 +127,11 @@ class _Header extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final now = DateTime.now();
     final name = ref.watch(authProvider.select((a) => a.name));
+    // Rebuild the badge when anything it counts changes.
+    ref.watch(tasksProvider);
+    ref.watch(habitsProvider);
+    ref.watch(assistantProvider.select((s) => s.pending.length));
+    final hasNews = _notifications(ref).isNotEmpty;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -143,9 +148,9 @@ class _Header extends ConsumerWidget {
         ),
         IconGlassButton(
           icon: LucideIcons.bell,
-          badge: true,
+          badge: hasNews,
           semanticLabel: 'Notifications',
-          onPressed: () => _showNotifications(context),
+          onPressed: () => _showNotifications(context, ref),
         ),
         const SizedBox(width: Space.xs),
         Pressable(
@@ -170,17 +175,41 @@ class _Header extends ConsumerWidget {
     );
   }
 
-  void _showNotifications(BuildContext context) {
-    final items = [
-      (LucideIcons.sparkles, LifeColors.iris, 'Your daily review is ready', '3 suggestions for tomorrow', '21:02'),
-      (LucideIcons.flame, LifeColors.coral, '12-day reading streak', 'Keep it going tonight', '19:30'),
-      (LucideIcons.trophy, LifeColors.amber, 'Achievement unlocked', 'Shipper · project milestone', 'Yesterday'),
+  /// Built from what's actually going on, so it's right in both data modes.
+  List<(IconData, Color, String, String, String)> _notifications(WidgetRef ref) {
+    final now = DateTime.now();
+    final pending = ref.read(assistantProvider).pending.length;
+    final overdue = ref.read(tasksProvider).where((t) => t.isOverdue(now)).length;
+    final habits = ref.read(habitsProvider);
+    final atRisk = habits.where((h) => h.streak > 1 && !h.doneOn(now)).toList()..sort((a, b) => b.streak.compareTo(a.streak));
+    final revisions = ref.read(learningProvider).paths.expand((p) => p.topics).where((t) => t.revisionDue).length;
+    final recent = ref
+        .read(achievementsProvider)
+        .where((a) => a.unlockedAt != null && now.difference(a.unlockedAt!).inDays < 7)
+        .toList()
+      ..sort((a, b) => b.unlockedAt!.compareTo(a.unlockedAt!));
+    return [
+      if (pending > 0)
+        (LucideIcons.sparkles, LifeColors.iris, '$pending suggestion${pending == 1 ? '' : 's'} waiting', 'From your assistant', 'Now'),
+      if (overdue > 0) (LucideIcons.clockAlert, LifeColors.danger, '$overdue overdue task${overdue == 1 ? '' : 's'}', 'Reschedule or let them go', 'Today'),
+      if (atRisk.isNotEmpty)
+        (LucideIcons.flame, LifeColors.coral, '${atRisk.first.streak}-day ${atRisk.first.title} streak', 'Not done yet today', 'Today'),
+      if (revisions > 0)
+        (LucideIcons.repeat, LifeColors.sky, '$revisions topic${revisions == 1 ? '' : 's'} to revise', 'Spaced repetition keeps it fresh', 'Today'),
+      for (final a in recent.take(2))
+        (LucideIcons.trophy, LifeColors.amber, 'Achievement unlocked', a.title, DateFormat('d MMM').format(a.unlockedAt!)),
     ];
+  }
+
+  void _showNotifications(BuildContext context, WidgetRef ref) {
+    final items = _notifications(ref);
     showGlassSheet<void>(
       context,
       title: 'Notifications',
       builder: (_) => Column(
         children: [
+          if (items.isEmpty)
+            const EmptyState(icon: LucideIcons.bellOff, title: 'All caught up', message: 'Nothing needs you right now.'),
           for (final i in items)
             Padding(
               padding: const EdgeInsets.only(bottom: Space.md),
@@ -194,6 +223,7 @@ class _Header extends ConsumerWidget {
                       children: [Text(i.$3, style: LifeText.bodyStrong), Text(i.$4, style: LifeText.caption)],
                     ),
                   ),
+                  const SizedBox(width: Space.sm),
                   Text(i.$5, style: LifeText.mono),
                 ],
               ),
@@ -329,6 +359,23 @@ class _InsightCard extends ConsumerStatefulWidget {
 class _InsightCardState extends ConsumerState<_InsightCard> {
   bool _dismissed = false;
 
+  /// The server's daily insight when there is one; otherwise a plain summary.
+  String _insight() {
+    final live = ref.watch(authProvider.select((a) => a.live));
+    if (!live) {
+      return 'You finish most tasks before 1 PM. Put tomorrow’s hardest DSA problem first and keep the evening for revision.';
+    }
+    final fromReview = ref.watch(reviewsProvider.select((r) => r.insight));
+    if (fromReview != null && fromReview.isNotEmpty) return fromReview;
+    final now = DateTime.now();
+    final tasks = ref.watch(tasksProvider);
+    final today = tasks.where((t) => t.isDueOn(now) || t.isOverdue(now)).toList();
+    if (tasks.isEmpty) return 'Start small: add one task for today, or ask me to plan your week.';
+    final left = today.where((t) => !t.done).length;
+    if (left == 0) return 'Everything due today is done. Ask me to plan tomorrow while it’s fresh.';
+    return '$left thing${left == 1 ? '' : 's'} left today. Your evening review will suggest what to move if the day runs out.';
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedSize(
@@ -345,16 +392,12 @@ class _InsightCardState extends ConsumerState<_InsightCard> {
                     children: [
                       const AiMark(size: 26),
                       const SizedBox(width: Space.sm),
-                      Text('Assistant', style: LifeText.label),
-                      const Spacer(),
-                      Text('Daily insight', style: LifeText.mono),
+                      Expanded(child: Text('Assistant', style: LifeText.label, overflow: TextOverflow.ellipsis)),
+                      Flexible(child: Text('Daily insight', style: LifeText.mono, overflow: TextOverflow.ellipsis)),
                     ],
                   ),
                   const SizedBox(height: Space.md),
-                  Text(
-                    'You finish most tasks before 1 PM. Put tomorrow’s hardest DSA problem first and keep the evening for revision.',
-                    style: LifeText.body,
-                  ),
+                  Text(_insight(), style: LifeText.body),
                   const SizedBox(height: Space.lg),
                   Wrap(
                     spacing: Space.sm,

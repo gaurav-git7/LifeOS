@@ -440,10 +440,12 @@ class Proposal {
     this.groupId,
     this.status = ProposalStatus.pending,
     this.changes = const [],
+    this.payloadHash = '',
   });
 
   final String id;
   final String? groupId;
+  final String payloadHash; // approval is bound to exactly what the user saw
   final String actionType; // create_task | create_learning_path | schedule_block | create_habit | reschedule_task
   final String summary;
   final String reason;
@@ -463,6 +465,7 @@ class Proposal {
         payload: payload ?? this.payload,
         status: status ?? this.status,
         changes: changes ?? this.changes,
+        payloadHash: payloadHash,
       );
 }
 

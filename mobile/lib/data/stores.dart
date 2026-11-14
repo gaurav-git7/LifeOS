@@ -1,71 +1,339 @@
-// In-memory app state backed by sample data. Each notifier mirrors a backend
-// module; swapping these for API/Drift-backed repositories won't change screens.
+// App state. Two data modes:
+// - live: signed in to the LifeOS API. Data comes from the sync engine
+//   (offline cache + background push/pull); the assistant, memories,
+//   preferences and XP talk to the server.
+// - sample: "Explore with sample data" — everything stays on the phone.
+// Screens don't care which mode is active.
 
 import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show ProviderOrFamily;
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/theme/colors.dart';
 import '../shell/quick_capture_parser.dart';
+import 'api/api_client.dart';
 import 'models.dart';
 import 'seed.dart';
+import 'sync/sync_engine.dart';
 
 const _uuid = Uuid();
 String newId() => _uuid.v4();
 
 // =====================================================================
-// Auth & settings
+// API, auth & settings
 // =====================================================================
 
+final tokenStoreProvider = Provider<TokenStore>((ref) => TokenStore());
+
+final apiClientProvider = Provider<ApiClient>((ref) {
+  final client = ApiClient(tokens: ref.watch(tokenStoreProvider));
+  client.onSessionExpired = () => ref.read(authProvider.notifier).sessionExpired();
+  return client;
+});
+
+/// The sync engine when signed in to the server, otherwise null (sample mode).
+SyncEngine? liveSync(Ref ref) => ref.read(authProvider).live ? ref.read(syncEngineProvider) : null;
+
+enum AuthStatus { unknown, signedOut, signedIn }
+
 class AuthState {
-  const AuthState({this.signedIn = false, this.onboarded = false, this.name = 'Gaurav', this.email = ''});
-  final bool signedIn;
+  const AuthState({
+    this.status = AuthStatus.signedOut,
+    this.onboarded = false,
+    this.live = false,
+    this.name = 'there',
+    this.email = '',
+    this.emailVerified = true,
+    this.notice,
+  });
+  final AuthStatus status;
   final bool onboarded;
+  final bool live; // signed in to the server (vs. sample data)
   final String name;
   final String email;
-  AuthState copyWith({bool? signedIn, bool? onboarded, String? name, String? email}) => AuthState(
-        signedIn: signedIn ?? this.signedIn,
+  final bool emailVerified;
+  final String? notice; // shown on the sign-in screen (e.g. "session expired")
+
+  bool get signedIn => status == AuthStatus.signedIn;
+
+  AuthState copyWith({
+    AuthStatus? status,
+    bool? onboarded,
+    bool? live,
+    String? name,
+    String? email,
+    bool? emailVerified,
+    String? notice,
+    bool clearNotice = false,
+  }) =>
+      AuthState(
+        status: status ?? this.status,
         onboarded: onboarded ?? this.onboarded,
+        live: live ?? this.live,
         name: name ?? this.name,
         email: email ?? this.email,
+        emailVerified: emailVerified ?? this.emailVerified,
+        notice: clearNotice ? null : (notice ?? this.notice),
       );
 }
 
+/// Every provider holding user data — reset when the data mode changes.
+List<ProviderOrFamily> get _dataProviders => [
+      tasksProvider,
+      goalsProvider,
+      habitsProvider,
+      scheduleProvider,
+      learningProvider,
+      journalProvider,
+      memoriesProvider,
+      assistantProvider,
+      progressionProvider,
+      achievementsProvider,
+      prefsProvider,
+      reviewsProvider,
+      syncStatusProvider,
+    ];
+
 class AuthNotifier extends Notifier<AuthState> {
   static const _startSignedIn = bool.fromEnvironment('START_SIGNED_IN');
+  static const _modeKey = 'lifeos_mode';
+  static const _onboardedKey = 'lifeos_onboarded';
 
   @override
-  AuthState build() => const AuthState(signedIn: _startSignedIn, onboarded: _startSignedIn, email: 'you@example.com');
+  AuthState build() {
+    if (_startSignedIn) return const AuthState(status: AuthStatus.signedIn, onboarded: true, name: 'Gaurav');
+    Future.microtask(_restore);
+    return const AuthState(status: AuthStatus.unknown);
+  }
 
-  void completeOnboarding() => state = state.copyWith(onboarded: true);
+  ApiClient get _api => ref.read(apiClientProvider);
 
-  /// Mock sign-in (replaced by POST /auth/login).
+  /// App start: reopen the last session (works offline from the cache).
+  Future<void> _restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final onboarded = prefs.getBool(_onboardedKey) ?? false;
+      final mode = prefs.getString(_modeKey);
+      final hasSession = mode == 'live' && await ref.read(tokenStoreProvider).refresh != null;
+      if (!ref.mounted || state.status != AuthStatus.unknown) return; // signed in meanwhile
+      if (hasSession) {
+        state = AuthState(
+          status: AuthStatus.signedIn,
+          onboarded: true,
+          live: true,
+          name: prefs.getString('lifeos_name') ?? 'there',
+          email: prefs.getString('lifeos_email') ?? '',
+        );
+        await _startLive(fromCache: true);
+        unawaited(_refreshMe());
+        return;
+      }
+      if (mode == 'sample') {
+        state = const AuthState(status: AuthStatus.signedIn, onboarded: true, name: 'Gaurav');
+        return;
+      }
+      state = AuthState(status: AuthStatus.signedOut, onboarded: onboarded);
+    } catch (_) {
+      if (ref.mounted && state.status == AuthStatus.unknown) state = const AuthState(status: AuthStatus.signedOut);
+    }
+  }
+
+  Future<void> _saveMode(String? mode) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_onboardedKey, true);
+      if (mode == null) {
+        await prefs.remove(_modeKey);
+      } else {
+        await prefs.setString(_modeKey, mode);
+      }
+      await prefs.setString('lifeos_name', state.name);
+      await prefs.setString('lifeos_email', state.email);
+    } catch (_) {}
+  }
+
+  void _resetData() {
+    for (final p in _dataProviders) {
+      ref.invalidate(p);
+    }
+  }
+
+  Future<void> _startLive({bool fromCache = false}) async {
+    _resetData();
+    final sync = ref.read(syncEngineProvider);
+    if (fromCache) await sync.loadCache();
+    sync.publish();
+    unawaited(() async {
+      await sync.syncNow();
+      if (!ref.mounted) return;
+      await Future.wait([
+        ref.read(prefsProvider.notifier).load(),
+        ref.read(memoriesProvider.notifier).load(),
+        ref.read(assistantProvider.notifier).load(),
+        ref.read(reviewsProvider.notifier).load(),
+      ]);
+    }());
+  }
+
+  void _applyUser(Map<String, dynamic> u) {
+    state = state.copyWith(
+      name: (u['display_name'] as String?) ?? state.name,
+      email: (u['email'] as String?) ?? state.email,
+      emailVerified: u['email_verified_at'] != null,
+    );
+  }
+
+  Future<void> _refreshMe() async {
+    try {
+      _applyUser(await _api.get<Map<String, dynamic>>('/users/me'));
+      await _saveMode('live');
+    } on ApiException {
+      // offline: keep using the cache
+    }
+  }
+
+  Future<String?> _signedIn(Map<String, dynamic> tokens) async {
+    await ref.read(tokenStoreProvider).save(tokens['access_token'] as String, tokens['refresh_token'] as String);
+    state = const AuthState(status: AuthStatus.signedIn, onboarded: true, live: true);
+    _applyUser(Map<String, dynamic>.from(tokens['user'] as Map));
+    await ref.read(syncEngineProvider).clear();
+    await _saveMode('live');
+    await _startLive();
+    return null;
+  }
+
+  void completeOnboarding() {
+    state = state.copyWith(onboarded: true);
+    unawaited(SharedPreferences.getInstance().then((p) => p.setBool(_onboardedKey, true)).catchError((_) => false));
+  }
+
   Future<String?> signIn(String email, String password) async {
-    await Future<void>.delayed(const Duration(milliseconds: 700));
-    if (password.length < 10) return 'Email or password is incorrect.';
-    state = state.copyWith(signedIn: true, onboarded: true, email: email);
+    try {
+      final r = await _api.post<Map<String, dynamic>>('/auth/login',
+          auth: false, data: {'email': email, 'password': password, 'device_label': 'LifeOS Android'});
+      return _signedIn(r);
+    } on ApiException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> register(String name, String email, String password, {String? inviteCode}) async {
+    try {
+      String tz = 'UTC';
+      try {
+        tz = (await FlutterTimezone.getLocalTimezone().timeout(const Duration(milliseconds: 800))).identifier;
+      } catch (_) {}
+      final r = await _api.post<Map<String, dynamic>>('/auth/register', auth: false, data: {
+        'email': email,
+        'password': password,
+        'display_name': name,
+        'timezone': tz,
+        'device_label': 'LifeOS Android',
+        if (inviteCode != null && inviteCode.isNotEmpty) 'invite_code': inviteCode,
+      });
+      return _signedIn(r);
+    } on ApiException catch (e) {
+      return e.message;
+    }
+  }
+
+  /// Returns an error message, or null when the email was sent.
+  Future<String?> forgotPassword(String email) async {
+    try {
+      await _api.post<dynamic>('/auth/forgot-password', auth: false, data: {'email': email});
+      return null;
+    } on ApiException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> resendVerification() async {
+    try {
+      await _api.post<dynamic>('/auth/resend-verification', data: {'email': state.email});
+      return null;
+    } on ApiException catch (e) {
+      return e.message;
+    }
+  }
+
+  /// "Explore with sample data" — no account, nothing leaves the phone.
+  void useSampleData() {
+    _resetData();
+    state = const AuthState(status: AuthStatus.signedIn, onboarded: true, name: 'Gaurav');
+    unawaited(_saveMode('sample'));
+  }
+
+  Future<void> signOut() async {
+    if (state.live) {
+      final tokens = ref.read(tokenStoreProvider);
+      final refresh = await tokens.refresh;
+      final sync = ref.read(syncEngineProvider);
+      // Last chance to send unsynced changes (best effort, don't block on a slow server).
+      await sync.push().timeout(const Duration(seconds: 5), onTimeout: () {});
+      if (refresh != null) {
+        // Revoke this device's refresh token (best effort).
+        try {
+          await _api.post<dynamic>('/auth/logout', data: {'refresh_token': refresh}).timeout(const Duration(seconds: 4));
+        } catch (_) {}
+      }
+      await tokens.clear();
+      await sync.clear();
+    }
+    state = AuthState(status: AuthStatus.signedOut, onboarded: true, email: state.email);
+    await _saveMode(null);
+    _resetData();
+  }
+
+  /// Permanently deletes the account on the server. Returns an error message or null.
+  Future<String?> deleteAccount() async {
+    if (state.live) {
+      try {
+        await _api.delete('/users/me');
+      } on ApiException catch (e) {
+        return e.message;
+      }
+      await ref.read(tokenStoreProvider).clear();
+      await ref.read(syncEngineProvider).clear();
+    }
+    state = const AuthState(status: AuthStatus.signedOut, onboarded: true);
+    await _saveMode(null);
+    _resetData();
     return null;
   }
 
-  /// Mock registration (replaced by POST /auth/register).
-  Future<String?> register(String name, String email, String password) async {
-    await Future<void>.delayed(const Duration(milliseconds: 800));
-    if (password.length < 10) return 'Password must be at least 10 characters.';
-    state = state.copyWith(signedIn: true, onboarded: true, name: name, email: email);
-    return null;
+  /// Refresh token rejected (expired, revoked, or "sign out everywhere").
+  void sessionExpired() {
+    if (!state.live) return;
+    unawaited(ref.read(syncEngineProvider).clear());
+    state = AuthState(
+      status: AuthStatus.signedOut,
+      onboarded: true,
+      email: state.email,
+      notice: 'Your session ended. Please sign in again.',
+    );
+    unawaited(_saveMode(null));
+    _resetData();
   }
 
-  void signOut() => state = state.copyWith(signedIn: false);
-
-  void rename(String name) => state = state.copyWith(name: name);
+  void rename(String name) {
+    state = state.copyWith(name: name);
+    if (state.live) {
+      unawaited(_api.patch<dynamic>('/users/me', data: {'display_name': name}).then<void>((_) {}, onError: (_) {}));
+    }
+    unawaited(_saveMode(state.live ? 'live' : 'sample'));
+  }
 
   /// For tests / previews.
-  void debugSignIn() => state = state.copyWith(signedIn: true, onboarded: true);
+  @visibleForTesting
+  void debugSignIn() => state = state.copyWith(status: AuthStatus.signedIn, onboarded: true, live: false, name: 'Gaurav');
 }
 
 final authProvider = NotifierProvider<AuthNotifier, AuthState>(AuthNotifier.new);
@@ -129,10 +397,61 @@ class Prefs {
       );
 }
 
+String _hhmm(TimeOfDay t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:00';
+TimeOfDay? _tod(Object? v) =>
+    v is String && v.length >= 5 ? TimeOfDay(hour: int.parse(v.substring(0, 2)), minute: int.parse(v.substring(3, 5))) : null;
+
 class PrefsNotifier extends Notifier<Prefs> {
   @override
   Prefs build() => const Prefs();
-  void update(Prefs Function(Prefs) f) => state = f(state);
+
+  static Map<String, Object?> _toApi(Prefs p) => {
+        'daily_review_enabled': p.dailyReview,
+        'daily_review_time': _hhmm(p.reviewTime),
+        'weekly_review_enabled': p.weeklyReview,
+        'notifications_enabled': p.notifications,
+        'quiet_hours_start': p.quietHours ? '22:30:00' : null,
+        'quiet_hours_end': p.quietHours ? '07:00:00' : null,
+        'ai_enabled': p.aiEnabled,
+        'ai_memory_enabled': p.aiMemory,
+        'mood_ai_enabled': p.moodAi,
+        'journal_ai_enabled': p.journalAi,
+        'ai_daily_budget_usd': p.dailyBudget,
+      };
+
+  void update(Prefs Function(Prefs) f) {
+    final before = _toApi(state);
+    state = f(state);
+    if (liveSync(ref) == null) return;
+    final after = _toApi(state);
+    final diff = {for (final e in after.entries) if (before[e.key] != e.value) e.key: e.value};
+    if (diff.isEmpty) return;
+    unawaited(ref.read(apiClientProvider).patch<dynamic>('/users/me/preferences', data: diff).then<void>((_) {}, onError: (_) {}));
+  }
+
+  /// Live mode: read preferences from the server.
+  Future<void> load() async {
+    try {
+      final r = await ref.read(apiClientProvider).get<Map<String, dynamic>>('/users/me/preferences');
+      if (!ref.mounted) return;
+      state = Prefs(
+        reviewTime: _tod(r['daily_review_time']) ?? state.reviewTime,
+        dailyReview: r['daily_review_enabled'] as bool? ?? true,
+        weeklyReview: r['weekly_review_enabled'] as bool? ?? true,
+        notifications: r['notifications_enabled'] as bool? ?? true,
+        quietHours: r['quiet_hours_start'] != null,
+        aiEnabled: r['ai_enabled'] as bool? ?? true,
+        aiMemory: r['ai_memory_enabled'] as bool? ?? true,
+        moodAi: r['mood_ai_enabled'] as bool? ?? false,
+        journalAi: r['journal_ai_enabled'] as bool? ?? false,
+        appLock: state.appLock,
+        journalLock: state.journalLock,
+        dailyBudget: (r['ai_daily_budget_usd'] as num?)?.toDouble() ?? state.dailyBudget,
+      );
+    } on ApiException {
+      // keep defaults
+    }
+  }
 }
 
 final prefsProvider = NotifierProvider<PrefsNotifier, Prefs>(PrefsNotifier.new);
@@ -184,7 +503,39 @@ class Progression {
 
 class ProgressionNotifier extends Notifier<Progression> {
   @override
-  Progression build() => const Progression(totalXp: 5531, todayXp: 120);
+  Progression build() =>
+      ref.read(authProvider).live ? const Progression(totalXp: 0, todayXp: 0) : const Progression(totalXp: 5531, todayXp: 120);
+
+  /// Live mode: the server's XP ledger is the source of truth. Local awards only
+  /// drive instant feedback; this corrects the totals afterwards.
+  Future<void> refreshFromServer() async {
+    if (!ref.read(authProvider).live) return;
+    try {
+      final api = ref.read(apiClientProvider);
+      final results = await Future.wait([
+        api.get<Map<String, dynamic>>('/progression'),
+        api.get<List<dynamic>>('/progression/xp-history', query: {'limit': 200}),
+      ]);
+      if (!ref.mounted) return;
+      final p = results[0] as Map<String, dynamic>;
+      final history = (results[1] as List).cast<Map<String, dynamic>>();
+      final today = dateOnly(DateTime.now());
+      final todayXp = history
+          .where((h) => sameDay(DateTime.parse(h['created_at'] as String).toLocal(), today))
+          .fold<int>(0, (a, h) => a + (h['amount'] as int));
+      final total = p['total_xp'] as int;
+      final before = state.info.level;
+      state = Progression(
+        totalXp: total,
+        todayXp: math.max(0, todayXp),
+        gainTick: state.gainTick,
+        levelUps: state.levelUps + (levelInfo(total).level > before && state.totalXp > 0 ? 1 : 0),
+      );
+      ref.read(achievementsProvider.notifier).fromServer((p['achievements'] as List).cast<Map<String, dynamic>>());
+    } on ApiException {
+      // offline
+    }
+  }
 
   void award(int xp) {
     if (xp <= 0) return;
@@ -215,15 +566,34 @@ final progressionProvider = NotifierProvider<ProgressionNotifier, Progression>(P
 
 class TasksNotifier extends Notifier<List<Task>> {
   @override
-  List<Task> build() => Seed.tasks();
+  List<Task> build() => ref.read(authProvider).live ? const [] : Seed.tasks();
+
+  void replaceAll(List<Task> tasks) => state = tasks;
 
   Task? byId(String id) => state.where((t) => t.id == id).firstOrNull;
 
-  void add(Task t) => state = [...state, t];
+  void add(Task t) {
+    state = [...state, t];
+    liveSync(ref)?.saveTask(t);
+  }
 
-  void update(Task t) => state = [for (final x in state) x.id == t.id ? t : x];
+  void update(Task t) {
+    final before = byId(t.id);
+    state = [for (final x in state) x.id == t.id ? t : x];
+    liveSync(ref)?.saveTask(t, before: before);
+  }
 
-  void delete(String id) => state = state.where((t) => t.id != id).toList();
+  void delete(String id) {
+    final t = byId(id);
+    state = state.where((t) => t.id != id).toList();
+    final s = liveSync(ref);
+    if (s != null && t != null) {
+      for (final sub in t.subtasks) {
+        s.queue('tasks', sub.id, const {}, delete: true);
+      }
+      s.queue('tasks', id, const {}, delete: true);
+    }
+  }
 
   /// Returns the XP awarded (0 when un-completing).
   int toggle(String id) {
@@ -256,9 +626,38 @@ final tasksProvider = NotifierProvider<TasksNotifier, List<Task>>(TasksNotifier.
 
 class GoalsNotifier extends Notifier<List<Goal>> {
   @override
-  List<Goal> build() => Seed.goals();
+  List<Goal> build() => ref.read(authProvider).live ? const [] : Seed.goals();
 
-  void add(Goal g) => state = [...state, g];
+  void replaceAll(List<Goal> goals) => state = goals;
+
+  void add(Goal g) {
+    state = [...state, g];
+    final s = liveSync(ref);
+    if (s == null) return;
+    s.queue('goals', g.id, {
+      'title': g.title,
+      'category': g.category.toLowerCase(),
+      'progress_type': g.progressType.name,
+      'target_value': g.target,
+      'current_value': g.current,
+      'unit': g.unit,
+      'target_date': g.targetDate == null ? null : dateStr(g.targetDate!),
+    });
+    for (final (i, m) in g.milestones.indexed) {
+      s.saveMilestone(g.id, m, i);
+    }
+  }
+
+  void remove(String id) {
+    state = state.where((g) => g.id != id).toList();
+    liveSync(ref)?.queue('goals', id, const {}, delete: true);
+  }
+
+  void addMilestone(String goalId, Milestone m) {
+    final count = state.where((g) => g.id == goalId).firstOrNull?.milestones.length ?? 0;
+    state = [for (final g in state) g.id == goalId ? g.copyWith(milestones: [...g.milestones, m]) : g];
+    liveSync(ref)?.saveMilestone(goalId, m, count);
+  }
 
   void toggleMilestone(String goalId, String milestoneId) {
     state = [
@@ -268,6 +667,7 @@ class GoalsNotifier extends Notifier<List<Goal>> {
             for (final m in g.milestones)
               if (m.id == milestoneId) () {
                 if (!m.done) ref.read(progressionProvider.notifier).award(100);
+                liveSync(ref)?.queue('goal_milestones', m.id, {'completed_at': m.done ? null : utcIso(DateTime.now())});
                 return m.copyWith(done: !m.done);
               }() else m,
           ])
@@ -276,8 +676,10 @@ class GoalsNotifier extends Notifier<List<Goal>> {
     ];
   }
 
-  void setCurrent(String goalId, double value) =>
-      state = [for (final g in state) g.id == goalId ? g.copyWith(current: value) : g];
+  void setCurrent(String goalId, double value) {
+    state = [for (final g in state) g.id == goalId ? g.copyWith(current: value) : g];
+    liveSync(ref)?.queue('goals', goalId, {'current_value': value});
+  }
 }
 
 final goalsProvider = NotifierProvider<GoalsNotifier, List<Goal>>(GoalsNotifier.new);
@@ -291,19 +693,29 @@ double goalProgress(Goal g, List<Task> tasks) {
     case GoalProgressType.milestones:
       return g.milestones.isEmpty ? 0 : g.milestones.where((m) => m.done).length / g.milestones.length;
     case GoalProgressType.tasks:
+      // Milestones and linked tasks both count, so a goal never shows 0% while
+      // milestones are ticked.
       final linked = tasks.where((t) => t.goalId == g.id).toList();
-      if (linked.isEmpty) {
-        return g.milestones.isEmpty ? 0 : g.milestones.where((m) => m.done).length / g.milestones.length;
-      }
-      return linked.where((t) => t.done).length / linked.length;
+      final total = linked.length + g.milestones.length;
+      if (total == 0) return 0;
+      final done = linked.where((t) => t.done).length + g.milestones.where((m) => m.done).length;
+      return done / total;
   }
 }
 
 class HabitsNotifier extends Notifier<List<Habit>> {
   @override
-  List<Habit> build() => Seed.habits();
+  List<Habit> build() => ref.read(authProvider).live ? const [] : Seed.habits();
 
-  void add(Habit h) => state = [...state, h];
+  void replaceAll(List<Habit> habits) => state = habits;
+
+  void add(Habit h) {
+    state = [...state, h];
+    liveSync(ref)?.queue('habits', h.id, {
+      'title': h.title,
+      'reminder_time': h.reminder == null ? null : _hhmm(h.reminder!),
+    });
+  }
 
   void toggle(String id, [DateTime? day]) {
     final d = dateOnly(day ?? DateTime.now());
@@ -311,11 +723,19 @@ class HabitsNotifier extends Notifier<List<Habit>> {
       for (final h in state)
         if (h.id == id) () {
           final days = {...h.doneDays};
-          if (days.remove(d)) {
-            ref.read(progressionProvider.notifier).revoke(5);
-          } else {
+          final done = !days.remove(d);
+          if (done) {
             days.add(d);
             ref.read(progressionProvider.notifier).award(5);
+          } else {
+            ref.read(progressionProvider.notifier).revoke(5);
+          }
+          final s = liveSync(ref);
+          if (s != null) {
+            // Habit logs are keyed by (habit, day) on the server; last write wins.
+            s.queue('habit_logs', s.habitLogId(id, d) ?? newId(),
+                {'habit_id': id, 'log_date': dateStr(d), 'status': done ? 'done' : 'skipped'},
+                sendBase: false);
           }
           return h.copyWith(doneDays: days);
         }() else h,
@@ -327,9 +747,24 @@ final habitsProvider = NotifierProvider<HabitsNotifier, List<Habit>>(HabitsNotif
 
 class ScheduleNotifier extends Notifier<List<ScheduleBlock>> {
   @override
-  List<ScheduleBlock> build() => Seed.schedule();
-  void add(ScheduleBlock b) => state = [...state, b]..sort((a, b) => a.start.compareTo(b.start));
-  void remove(String id) => state = state.where((b) => b.id != id).toList();
+  List<ScheduleBlock> build() => ref.read(authProvider).live ? const [] : Seed.schedule();
+
+  void replaceAll(List<ScheduleBlock> blocks) => state = blocks;
+
+  void add(ScheduleBlock b) {
+    state = [...state, b]..sort((a, b) => a.start.compareTo(b.start));
+    liveSync(ref)?.queue('schedule_blocks', b.id, {
+      'title': b.title,
+      'start_at': utcIso(b.start),
+      'end_at': utcIso(b.end),
+      'block_type': SyncEngine.blockTypeName(b.type),
+    });
+  }
+
+  void remove(String id) {
+    state = state.where((b) => b.id != id).toList();
+    liveSync(ref)?.queue('schedule_blocks', id, const {}, delete: true);
+  }
 }
 
 final scheduleProvider = NotifierProvider<ScheduleNotifier, List<ScheduleBlock>>(ScheduleNotifier.new);
@@ -362,8 +797,11 @@ class LearningNotifier extends Notifier<LearningState> {
   static const revisionIntervals = [1, 3, 7, 21];
 
   @override
-  LearningState build() =>
-      LearningState(paths: Seed.paths(), skills: Seed.skills(), sessions: Seed.sessions(), projects: Seed.projects());
+  LearningState build() => ref.read(authProvider).live
+      ? const LearningState(paths: [], skills: [], sessions: [], projects: [])
+      : LearningState(paths: Seed.paths(), skills: Seed.skills(), sessions: Seed.sessions(), projects: Seed.projects());
+
+  void replaceAll(LearningState s) => state = s;
 
   void _updateTopic(String pathId, String topicId, Topic Function(Topic) f) {
     state = state.copyWith(paths: [
@@ -387,12 +825,16 @@ class LearningNotifier extends Notifier<LearningState> {
         ));
     ref.read(progressionProvider.notifier).award(topic.difficulty.xp);
     _skillXp(path.skillId, topic.difficulty.xp);
+    liveSync(ref)?.callAndSync((api) => api.post<dynamic>('/learning/topics/$topicId/complete'));
   }
 
-  void startTopic(String pathId, String topicId) =>
-      _updateTopic(pathId, topicId, (t) => t.status == TopicStatus.notStarted ? t.copyWith(status: TopicStatus.inProgress) : t);
+  void startTopic(String pathId, String topicId) {
+    _updateTopic(pathId, topicId, (t) => t.status == TopicStatus.notStarted ? t.copyWith(status: TopicStatus.inProgress) : t);
+    liveSync(ref)?.queue('learning_topics', topicId, {'status': 'in_progress'});
+  }
 
   void reviseTopic(String pathId, String topicId) {
+    liveSync(ref)?.callAndSync((api) => api.post<dynamic>('/learning/topics/$topicId/revise'));
     _updateTopic(pathId, topicId, (t) {
       final n = t.revisionCount + 1;
       final interval = revisionIntervals[math.min(n, revisionIntervals.length - 1)];
@@ -426,10 +868,92 @@ class LearningNotifier extends Notifier<LearningState> {
       }
     }
     ref.read(progressionProvider.notifier).award(xp);
+    liveSync(ref)?.queue('study_sessions', s.id, {
+      'skill_id': s.skillId,
+      'topic_id': s.topicId,
+      'started_at': utcIso(s.start),
+      'ended_at': utcIso(s.start.add(Duration(minutes: s.minutes))),
+      'duration_minutes': s.minutes,
+      'problems_solved': s.problems == 0 ? null : s.problems,
+      'notes': s.label,
+      'source': 'focus_timer',
+    });
     return xp;
   }
 
-  void addPath(LearningPath p) => state = state.copyWith(paths: [...state.paths, p]);
+  void addPath(LearningPath p) {
+    state = state.copyWith(paths: [...state.paths, p]);
+    final s = liveSync(ref);
+    if (s == null) return;
+    s.queue('learning_paths', p.id, {
+      'title': p.title,
+      'target_date': p.targetDate == null ? null : dateStr(p.targetDate!),
+    });
+    for (final (i, t) in p.topics.indexed) {
+      s.saveTopic(p.id, p.skillId, t, i);
+    }
+  }
+
+  void removePath(String id) {
+    state = state.copyWith(paths: state.paths.where((p) => p.id != id).toList());
+    liveSync(ref)?.queue('learning_paths', id, const {}, delete: true);
+  }
+
+  void addTopic(String pathId, Topic t) {
+    final path = state.paths.where((p) => p.id == pathId).firstOrNull;
+    state = state.copyWith(paths: [
+      for (final p in state.paths) p.id == pathId ? p.copyWith(topics: [...p.topics, t]) : p,
+    ]);
+    liveSync(ref)?.saveTopic(pathId, path?.skillId, t, path?.topics.length ?? 0);
+  }
+
+  void addSkill(Skill s) {
+    state = state.copyWith(skills: [...state.skills, s]);
+    liveSync(ref)?.queue('skills', s.id, {'name': s.name, 'current_level': s.level, 'target_level': s.target});
+  }
+
+  void removeSkill(String id) {
+    state = state.copyWith(skills: state.skills.where((s) => s.id != id).toList());
+    liveSync(ref)?.queue('skills', id, const {}, delete: true);
+  }
+
+  void addProject(Project p) {
+    state = state.copyWith(projects: [...state.projects, p]);
+    final s = liveSync(ref);
+    if (s == null) return;
+    s.queue('projects', p.id, {
+      'name': p.name,
+      'description': p.description,
+      'tech_stack': p.stack,
+      'target_date': p.deadline == null ? null : dateStr(p.deadline!),
+    });
+    for (final (i, m) in p.milestones.indexed) {
+      s.saveProjectMilestone(p.id, m, i);
+    }
+  }
+
+  void removeProject(String id) {
+    final p = state.projects.where((p) => p.id == id).firstOrNull;
+    state = state.copyWith(projects: state.projects.where((p) => p.id != id).toList());
+    final s = liveSync(ref);
+    if (s == null) return;
+    for (final m in p?.milestones ?? const <Milestone>[]) {
+      s.queue('tasks', m.id, const {}, delete: true);
+    }
+    s.queue('projects', id, const {}, delete: true);
+  }
+
+  void addProjectMilestone(String projectId, Milestone m) {
+    final count = state.projects.where((p) => p.id == projectId).firstOrNull?.milestones.length ?? 0;
+    state = state.copyWith(projects: [
+      for (final p in state.projects)
+        if (p.id == projectId) () {
+          final ms = [...p.milestones, m];
+          return p.copyWith(milestones: ms, progress: ms.where((x) => x.done).length / ms.length);
+        }() else p,
+    ]);
+    liveSync(ref)?.saveProjectMilestone(projectId, m, count);
+  }
 
   void toggleProjectMilestone(String projectId, String milestoneId) {
     state = state.copyWith(projects: [
@@ -439,6 +963,7 @@ class LearningNotifier extends Notifier<LearningState> {
           final done = ms.where((m) => m.done).length;
           final was = p.milestones.firstWhere((m) => m.id == milestoneId).done;
           if (!was) ref.read(progressionProvider.notifier).award(80);
+          liveSync(ref)?.queue('tasks', milestoneId, {'status': was ? 'todo' : 'done'});
           return p.copyWith(milestones: ms, progress: ms.isEmpty ? p.progress : done / ms.length);
         }() else p,
     ]);
@@ -447,7 +972,35 @@ class LearningNotifier extends Notifier<LearningState> {
 
 final learningProvider = NotifierProvider<LearningNotifier, LearningState>(LearningNotifier.new);
 
-final achievementsProvider = Provider<List<Achievement>>((ref) => Seed.achievements());
+class AchievementsNotifier extends Notifier<List<Achievement>> {
+  @override
+  List<Achievement> build() {
+    final catalog = Seed.achievements();
+    return ref.read(authProvider).live
+        ? [
+            for (final a in catalog)
+              Achievement(code: a.code, title: a.title, description: a.description, icon: a.icon, color: a.color),
+          ]
+        : catalog;
+  }
+
+  void fromServer(List<Map<String, dynamic>> rows) {
+    final looks = {for (final a in Seed.achievements()) a.code: a};
+    state = [
+      for (final r in rows)
+        Achievement(
+          code: r['code'] as String,
+          title: r['title'] as String,
+          description: r['description'] as String,
+          icon: looks[r['code']]?.icon ?? LucideIcons.award,
+          color: looks[r['code']]?.color ?? LifeColors.amber,
+          unlockedAt: r['unlocked_at'] == null ? null : DateTime.parse(r['unlocked_at'] as String).toLocal(),
+        ),
+    ];
+  }
+}
+
+final achievementsProvider = NotifierProvider<AchievementsNotifier, List<Achievement>>(AchievementsNotifier.new);
 
 // =====================================================================
 // Journal & mood
@@ -466,12 +1019,32 @@ class JournalState {
 
 class JournalNotifier extends Notifier<JournalState> {
   @override
-  JournalState build() => JournalState(entries: Seed.journal(), moods: Seed.moods());
+  JournalState build() => ref.read(authProvider).live
+      ? const JournalState(entries: [], moods: [])
+      : JournalState(entries: Seed.journal(), moods: Seed.moods());
+
+  void replaceAll(JournalState s) => state = s;
 
   void saveMood(MoodEntry m) {
     final existing = state.moodOn(m.day);
     state = state.copyWith(moods: [m, ...state.moods.where((x) => !sameDay(x.day, m.day))]);
     if (existing == null) ref.read(progressionProvider.notifier).award(5);
+    final s = liveSync(ref);
+    if (s == null) return;
+    final data = <String, dynamic>{
+      'mood': m.mood + 1,
+      'energy': m.energy.clamp(1, 10),
+      'motivation': m.motivation.clamp(1, 10),
+      'tags': m.tags,
+    };
+    final id = s.moodIdFor(m.day);
+    if (id != null) {
+      s.queue('mood_entries', id, data);
+    } else {
+      final now = DateTime.now();
+      final at = sameDay(m.day, now) ? now : m.day.add(const Duration(hours: 12));
+      s.queue('mood_entries', newId(), {...data, 'recorded_at': utcIso(at)});
+    }
   }
 
   void upsertEntry(JournalEntry e) {
@@ -480,9 +1053,18 @@ class JournalNotifier extends Notifier<JournalState> {
     if (!exists && !state.entries.any((x) => x.id != e.id && sameDay(x.day, e.day))) {
       ref.read(progressionProvider.notifier).award(5);
     }
+    liveSync(ref)?.queue('journal_entries', e.id, {
+      'entry_date': dateStr(e.day),
+      'title': e.title,
+      'content': e.content,
+      'ai_allowed': e.aiAllowed,
+    });
   }
 
-  void deleteEntry(String id) => state = state.copyWith(entries: state.entries.where((e) => e.id != id).toList());
+  void deleteEntry(String id) {
+    state = state.copyWith(entries: state.entries.where((e) => e.id != id).toList());
+    liveSync(ref)?.queue('journal_entries', id, const {}, delete: true);
+  }
 }
 
 final journalProvider = NotifierProvider<JournalNotifier, JournalState>(JournalNotifier.new);
@@ -493,11 +1075,59 @@ final journalProvider = NotifierProvider<JournalNotifier, JournalState>(JournalN
 
 class MemoriesNotifier extends Notifier<List<Memory>> {
   @override
-  List<Memory> build() => Seed.memories();
-  void add(Memory m) => state = [m, ...state];
-  void keep(String id) => state = [for (final m in state) m.id == id ? m.copyWith(proposed: false) : m];
-  void edit(String id, String content) => state = [for (final m in state) m.id == id ? m.copyWith(content: content) : m];
-  void remove(String id) => state = state.where((m) => m.id != id).toList();
+  List<Memory> build() => ref.read(authProvider).live ? const [] : Seed.memories();
+
+  bool get _live => ref.read(authProvider).live;
+  ApiClient get _api => ref.read(apiClientProvider);
+
+  static Memory fromApi(Map<String, dynamic> r) => Memory(
+        id: r['id'] as String,
+        type: MemoryType.values.asNameMap()[r['memory_type']] ?? MemoryType.preference,
+        content: r['content'] as String,
+        proposed: r['status'] == 'proposed',
+      );
+
+  Future<void> load() async {
+    if (!_live) return;
+    try {
+      final rows = await _api.get<List<dynamic>>('/agent/memories');
+      if (!ref.mounted) return;
+      final all = [for (final r in rows) fromApi(Map<String, dynamic>.from(r as Map))];
+      state = [...all.where((m) => m.proposed), ...all.where((m) => !m.proposed)];
+    } on ApiException {
+      // offline
+    }
+  }
+
+  void _bg(Future<dynamic> Function() f) => unawaited(f().then<void>((_) {}, onError: (_) => load()));
+
+  void add(Memory m) {
+    state = [m, ...state];
+    if (_live) {
+      _bg(() async {
+        final r = await _api.post<Map<String, dynamic>>('/agent/memories', data: {'memory_type': m.type.name, 'content': m.content});
+        state = [for (final x in state) x.id == m.id ? fromApi(r) : x];
+      });
+    }
+  }
+
+  void keep(String id) {
+    state = [for (final m in state) m.id == id ? m.copyWith(proposed: false) : m];
+    if (_live) _bg(() => _api.post<dynamic>('/agent/memories/$id/accept'));
+  }
+
+  void edit(String id, String content) {
+    state = [for (final m in state) m.id == id ? m.copyWith(content: content) : m];
+    if (_live) _bg(() => _api.patch<dynamic>('/agent/memories/$id', data: {'content': content}));
+  }
+
+  void remove(String id) {
+    state = state.where((m) => m.id != id).toList();
+    if (_live) _bg(() => _api.delete('/agent/memories/$id'));
+  }
+
+  /// Suggestions that arrive with a chat reply.
+  void addSuggested(List<Memory> ms) => state = [...ms.where((m) => !state.any((x) => x.id == m.id)), ...state];
 }
 
 final memoriesProvider = NotifierProvider<MemoriesNotifier, List<Memory>>(MemoriesNotifier.new);
@@ -524,17 +1154,137 @@ class AssistantState {
 
 class AssistantNotifier extends Notifier<AssistantState> {
   Timer? _stream;
+  String? _conversationId;
 
   @override
   AssistantState build() {
     ref.onDispose(() => _stream?.cancel());
+    if (ref.read(authProvider).live) return const AssistantState(messages: [], proposals: []);
     return AssistantState(messages: Seed.messages(), proposals: Seed.proposals());
+  }
+
+  bool get _live => ref.read(authProvider).live;
+  ApiClient get _api => ref.read(apiClientProvider);
+
+  static final _fmt = DateFormat('EEE d MMM');
+  static final _time = DateFormat('HH:mm');
+
+  /// Server proposal → card. "changes" are derived from the payload.
+  static Proposal fromApi(Map<String, dynamic> r) {
+    final pl = Map<String, Object?>.from(r['payload'] as Map);
+    String day(Object? v) => _fmt.format(DateTime.parse(v! as String).toLocal());
+    String dayTime(Object? v) => '${day(v)} · ${_time.format(DateTime.parse(v! as String).toLocal())}';
+    final changes = <ProposalChange>[
+      if (pl['due_at'] != null) ProposalChange('Due', dayTime(pl['due_at'])),
+      if (pl['due_at'] == null && pl['due_date'] != null) ProposalChange('Due', day(pl['due_date'])),
+      if (pl['start_at'] != null && pl['end_at'] != null)
+        ProposalChange('When', '${dayTime(pl['start_at'])}–${_time.format(DateTime.parse(pl['end_at']! as String).toLocal())}'),
+      if (pl['remind_at'] != null) ProposalChange('When', dayTime(pl['remind_at'])),
+      if (pl['priority'] != null) ProposalChange('Priority', categoryCase(pl['priority']! as String)),
+      if (pl['estimated_minutes'] != null) ProposalChange('Estimate', '${pl['estimated_minutes']} min'),
+      if (pl['target_date'] != null) ProposalChange('Target', day(pl['target_date'])),
+      if (pl['category'] != null) ProposalChange('Category', categoryCase(pl['category']! as String)),
+      if (pl['reminder_time'] != null) ProposalChange('Reminder', (pl['reminder_time']! as String).substring(0, 5)),
+      for (final (i, t) in ((pl['topics'] as List?) ?? const []).indexed)
+        ProposalChange('Topic ${i + 1}', (t as Map)['title'] as String),
+      for (final it in ((pl['items'] as List?) ?? const []))
+        ProposalChange('New date', (it as Map)['due_at'] != null ? dayTime(it['due_at']) : day(it['due_date'])),
+    ];
+    return Proposal(
+      id: r['id'] as String,
+      groupId: r['group_id'] as String?,
+      actionType: r['action_type'] as String,
+      summary: r['summary'] as String,
+      reason: (r['reason'] as String?) ?? '',
+      origin: r['origin'] as String,
+      payload: pl,
+      payloadHash: r['payload_hash'] as String,
+      status: switch (r['status']) {
+        'executed' || 'approved' => ProposalStatus.executed,
+        'rejected' || 'expired' || 'failed' => ProposalStatus.rejected,
+        _ => ProposalStatus.pending,
+      },
+      changes: changes,
+    );
+  }
+
+  static String categoryCase(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1).replaceAll('_', ' ');
+
+  /// Live mode: pending suggestions + the latest conversation.
+  Future<void> load() async {
+    if (!_live) return;
+    try {
+      final pending = await _api.get<List<dynamic>>('/agent/proposals');
+      if (!ref.mounted) return;
+      final convs = await _api.get<List<dynamic>>('/agent/conversations', query: {'limit': 1});
+      if (!ref.mounted) return;
+      var messages = <ChatMessage>[];
+      if (convs.isNotEmpty) {
+        _conversationId = (convs.first as Map)['id'] as String;
+        final rows = await _api.get<List<dynamic>>('/agent/conversations/$_conversationId/messages', query: {'limit': 60});
+        if (!ref.mounted) return;
+        messages = [
+          for (final m in rows.cast<Map<String, dynamic>>())
+            if (m['role'] == 'user' || m['role'] == 'assistant')
+              ChatMessage(
+                id: m['id'] as String,
+                role: m['role'] == 'user' ? ChatRole.user : ChatRole.assistant,
+                text: (m['content'] as String?) ?? '',
+              ),
+        ];
+      }
+      state = state.copyWith(
+        messages: state.thinking ? state.messages : messages,
+        proposals: [for (final p in pending) fromApi(Map<String, dynamic>.from(p as Map))],
+      );
+    } on ApiException {
+      // offline
+    }
+  }
+
+  void _say(String text, {List<String> proposalIds = const []}) {
+    final msg = ChatMessage(id: newId(), role: ChatRole.assistant, text: '', streaming: true, proposalIds: proposalIds);
+    state = state.copyWith(messages: [...state.messages, msg], thinking: false);
+    final words = text.split(' ');
+    var i = 0;
+    _stream?.cancel();
+    _stream = Timer.periodic(const Duration(milliseconds: 30), (t) {
+      i++;
+      final done = i >= words.length;
+      state = state.copyWith(messages: [
+        for (final m in state.messages) m.id == msg.id ? m.copyWith(text: words.take(i).join(' '), streaming: !done) : m,
+      ]);
+      if (done) t.cancel();
+    });
+  }
+
+  Future<void> _sendLive(String text) async {
+    try {
+      // Let the assistant see the latest local changes first.
+      await ref.read(syncEngineProvider).push();
+      final r = await _api.post<Map<String, dynamic>>('/agent/chat', data: {
+        'message': text,
+        'conversation_id': ?_conversationId,
+      });
+      _conversationId = r['conversation_id'] as String?;
+      final proposals = [for (final p in (r['proposals'] as List)) fromApi(Map<String, dynamic>.from(p as Map))];
+      final memories = [
+        for (final m in (r['memory_suggestions'] as List)) MemoriesNotifier.fromApi(Map<String, dynamic>.from(m as Map)),
+      ];
+      if (memories.isNotEmpty) ref.read(memoriesProvider.notifier).addSuggested(memories);
+      state = state.copyWith(proposals: [...state.proposals, ...proposals]);
+      final follow = r['follow_up_question'] as String?;
+      _say([r['message'] as String, ?follow].join('\n\n'), proposalIds: [for (final p in proposals) p.id]);
+    } on ApiException catch (e) {
+      _say(e.isNetwork ? 'I can’t reach the server right now. Try again in a moment.' : e.message);
+    }
   }
 
   Future<void> send(String text) async {
     if (text.trim().isEmpty || state.thinking) return;
     final user = ChatMessage(id: newId(), role: ChatRole.user, text: text.trim());
     state = state.copyWith(messages: [...state.messages, user], thinking: true);
+    if (_live) return _sendLive(text.trim());
     await Future<void>.delayed(const Duration(milliseconds: 900));
 
     final (reply, proposals) = _reply(text.trim());
@@ -747,25 +1497,62 @@ class AssistantNotifier extends Notifier<AssistantState> {
         for (final p in state.proposals) ids.contains(p.id) ? p.copyWith(status: status) : p,
       ]);
 
+  /// Live mode: run a server call; on failure put the cards back and explain.
+  void _live2(Iterable<String> ids, Future<void> Function() call) {
+    unawaited(() async {
+      try {
+        await ref.read(syncEngineProvider).push();
+        await call();
+        await ref.read(syncEngineProvider).pull();
+      } on ApiException catch (e) {
+        _setStatus(ids, ProposalStatus.pending);
+        _say(e.isNetwork ? 'Couldn’t reach the server — the suggestion is still waiting for you.' : 'That didn’t work: ${e.message}');
+        if (e.code == 'stale_proposal' || e.code == 'proposal_expired' || e.status == 409) unawaited(load());
+      }
+    }());
+  }
+
   void approve(String id) {
     final p = state.proposal(id);
     if (p == null || p.status != ProposalStatus.pending) return;
-    _apply(p);
     _setStatus([id], ProposalStatus.executed);
+    if (_live) {
+      return _live2([id], () => _api.post<dynamic>('/agent/proposals/$id/approve', data: {'payload_hash': p.payloadHash}));
+    }
+    _apply(p);
   }
 
   void approveGroup(String groupId, Set<String> excluded) {
     final group = state.proposals.where((p) => p.groupId == groupId && p.status == ProposalStatus.pending).toList();
-    for (final p in group.where((p) => !excluded.contains(p.id))) {
+    final chosen = group.where((p) => !excluded.contains(p.id)).toList();
+    _setStatus(chosen.map((p) => p.id), ProposalStatus.executed);
+    _setStatus(excluded, ProposalStatus.rejected);
+    if (_live) {
+      if (chosen.isEmpty) {
+        for (final id in excluded) {
+          unawaited(_api.post<dynamic>('/agent/proposals/$id/reject').then<void>((_) {}, onError: (_) {}));
+        }
+        return;
+      }
+      return _live2(
+        chosen.map((p) => p.id),
+        () => _api.post<dynamic>('/agent/proposal-groups/$groupId/approve', data: {
+          'payload_hashes': {for (final p in chosen) p.id: p.payloadHash},
+          'exclude': excluded.toList(),
+        }),
+      );
+    }
+    for (final p in chosen) {
       _apply(p);
     }
-    _setStatus(group.where((p) => !excluded.contains(p.id)).map((p) => p.id), ProposalStatus.executed);
-    _setStatus(excluded, ProposalStatus.rejected);
   }
 
-  void reject(String id) => _setStatus([id], ProposalStatus.rejected);
+  void reject(String id) {
+    _setStatus([id], ProposalStatus.rejected);
+    if (_live) unawaited(_api.post<dynamic>('/agent/proposals/$id/reject').then<void>((_) {}, onError: (_) {}));
+  }
 
-  /// "Modify": edit the title/summary before approving — no AI call needed.
+  /// "Modify": edit the title before approving — no AI call needed.
   void editTitle(String id, String title) {
     final p = state.proposal(id);
     if (p == null) return;
@@ -773,13 +1560,118 @@ class AssistantNotifier extends Notifier<AssistantState> {
     state = state.copyWith(proposals: [
       for (final x in state.proposals) x.id == id ? x.copyWith(payload: {...x.payload, 'title': title}, summary: summary) : x,
     ]);
+    if (_live) {
+      unawaited(() async {
+        try {
+          final r = await _api.patch<Map<String, dynamic>>('/agent/proposals/$id', data: {
+            'arguments': {'title': title},
+          });
+          final fresh = fromApi(r);
+          state = state.copyWith(proposals: [for (final x in state.proposals) x.id == id ? fresh : x]);
+        } on ApiException catch (e) {
+          _say('Couldn’t change that suggestion: ${e.message}');
+          unawaited(load());
+        }
+      }());
+    }
   }
 
-  /// Daily-review "Plan tomorrow" (mock: re-adds the review suggestions if all handled).
-  void clearChat() => state = state.copyWith(messages: Seed.messages());
+  void clearChat() {
+    _conversationId = null;
+    state = state.copyWith(messages: _live ? const [] : Seed.messages());
+  }
 }
 
 final assistantProvider = NotifierProvider<AssistantNotifier, AssistantState>(AssistantNotifier.new);
+
+// =====================================================================
+// Reviews (daily insight + weekly report from the server)
+// =====================================================================
+
+class Reviews {
+  const Reviews({
+    this.insight,
+    this.highlights = const [],
+    this.attention = const [],
+    this.weeklyReport,
+    this.recommendations = const [],
+    this.busy = false,
+  });
+  final String? insight;
+  final List<String> highlights;
+  final List<String> attention;
+  final String? weeklyReport;
+  final List<String> recommendations;
+  final bool busy;
+}
+
+class ReviewsNotifier extends Notifier<Reviews> {
+  @override
+  Reviews build() => const Reviews();
+
+  ApiClient get _api => ref.read(apiClientProvider);
+
+  static List<String> _strings(Object? v) => [for (final x in (v as List?) ?? const []) '$x'];
+
+  void _daily(Map<String, dynamic> d, Reviews s) {
+    state = Reviews(
+      insight: d['available'] == true ? d['insight'] as String? : s.insight,
+      highlights: d['available'] == true ? _strings(d['highlights']) : s.highlights,
+      attention: d['available'] == true ? _strings(d['attention']) : s.attention,
+      weeklyReport: s.weeklyReport,
+      recommendations: s.recommendations,
+    );
+  }
+
+  void _weekly(Map<String, dynamic> w, Reviews s) {
+    state = Reviews(
+      insight: s.insight,
+      highlights: s.highlights,
+      attention: s.attention,
+      weeklyReport: w['available'] == true ? w['report'] as String? : s.weeklyReport,
+      recommendations: w['available'] == true ? _strings(w['recommendations']) : s.recommendations,
+    );
+  }
+
+  Future<void> load() async {
+    if (!ref.read(authProvider).live) return;
+    try {
+      final d = await _api.get<Map<String, dynamic>>('/agent/reviews/daily');
+      if (!ref.mounted) return;
+      _daily(d, state);
+      final w = await _api.get<Map<String, dynamic>>('/agent/reviews/weekly');
+      if (!ref.mounted) return;
+      _weekly(w, state);
+    } on ApiException {
+      // offline
+    }
+  }
+
+  /// "Generate now" for the weekly report. Returns an error message or null.
+  Future<String?> runWeekly() async {
+    final before = state;
+    state = Reviews(
+      insight: before.insight,
+      highlights: before.highlights,
+      attention: before.attention,
+      weeklyReport: before.weeklyReport,
+      recommendations: before.recommendations,
+      busy: true,
+    );
+    try {
+      final w = await _api.post<Map<String, dynamic>>('/agent/reviews/weekly/run');
+      if (!ref.mounted) return null;
+      _weekly(w, before);
+      unawaited(ref.read(assistantProvider.notifier).load()); // new suggestions
+      return null;
+    } on ApiException catch (e) {
+      if (ref.mounted) state = before;
+      return e.message;
+    }
+  }
+}
+
+final reviewsProvider = NotifierProvider<ReviewsNotifier, Reviews>(ReviewsNotifier.new);
 
 /// Which Assistant tab to show (set by "Suggestions" banners elsewhere).
 class AssistantTabNotifier extends Notifier<int> {

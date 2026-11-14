@@ -43,7 +43,7 @@ class AchievementsScreen extends ConsumerWidget {
                     crossAxisCount: 2,
                     mainAxisSpacing: Space.cardGap,
                     crossAxisSpacing: Space.cardGap,
-                    childAspectRatio: 0.92,
+                    childAspectRatio: 0.78,
                     children: [
                       for (final (i, a) in all.indexed)
                         StaggeredEntry(
@@ -70,7 +70,7 @@ class AchievementsScreen extends ConsumerWidget {
                                 const Spacer(),
                                 Text(a.title, style: LifeText.title.copyWith(color: a.unlockedAt != null ? LifeColors.text : LifeColors.text2)),
                                 const SizedBox(height: 2),
-                                Text(a.description, style: LifeText.caption, maxLines: 2),
+                                Text(a.description, style: LifeText.caption, maxLines: 2, overflow: TextOverflow.ellipsis),
                                 const SizedBox(height: Space.sm),
                                 Text(
                                   a.unlockedAt != null ? DateFormat('d MMM yyyy').format(a.unlockedAt!) : 'Locked',

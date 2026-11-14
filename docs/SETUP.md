@@ -238,7 +238,28 @@ Restore: `gpg -d lifeos-<date>.sql.gz.gpg | gunzip | psql "<db url>"`.
 
 ---
 
+## 10. Run the app against your server
+
+The app talks to `https://lifeos-api-xxrp.onrender.com/api/v1` by default. Sign in with the account from step 7.
+"Explore with sample data" on the sign-in screen still works without an account (nothing leaves the phone).
+
+```bash
+cd mobile
+flutter run                                   # phone on USB, uses the Render API
+flutter run --dart-define=API_URL=http://10.0.2.2:8000/api/v1   # Android emulator → local backend
+```
+
+How data moves: every change is saved on the phone first, queued, and sent with `/sync/push` within a second;
+`/sync/pull` runs after each push, when the app comes back to the foreground, and on pull-to-refresh. Offline
+changes wait in the queue (Settings → *Sync now* shows how many). XP, streaks and achievements always come
+from the server.
+
+Check the app's data layer against a real backend (creates a throwaway account and deletes it at the end):
+
+```bash
+LIFEOS_LIVE_API=http://127.0.0.1:8000/api/v1 flutter test test/live_backend_test.dart
+```
+
 ## What's next
 
-The mobile app still runs on its own sample UI. Connecting it to this API (login/register screens, Dio client,
-Drift cache, FCM token registration) is the next phase — see ARCHITECTURE.md §21.
+Push notifications (FCM token registration) and a release APK.

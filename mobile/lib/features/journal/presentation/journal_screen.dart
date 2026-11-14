@@ -53,8 +53,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> {
                     children: [
                       const Icon(LucideIcons.quote, size: 16, color: LifeColors.rose),
                       const SizedBox(width: Space.sm),
-                      Text('Reflection prompt', style: LifeText.eyebrow),
-                      const Spacer(),
+                      Expanded(child: Text('Reflection prompt', style: LifeText.eyebrow, overflow: TextOverflow.ellipsis)),
                       IconGlassButton(
                         icon: LucideIcons.refreshCw,
                         size: 34,

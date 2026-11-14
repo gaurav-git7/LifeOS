@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/widgets/widgets.dart';
 import '../data/stores.dart';
+import '../data/sync/sync_engine.dart';
 import 'quick_add_sheet.dart';
 import 'xp_overlay.dart';
 
@@ -22,6 +23,7 @@ class AppShell extends ConsumerWidget {
     final d = Motion.of(context, Motion.card);
     final pending = ref.watch(assistantProvider.select((s) => s.pending.length));
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final live = ref.watch(authProvider.select((a) => a.live));
 
     return Scaffold(
       backgroundColor: LifeColors.bg,
@@ -29,7 +31,21 @@ class AppShell extends ConsumerWidget {
       body: Stack(
         children: [
           Positioned.fill(child: AmbientBackground(mode: AmbientMode.values[index])),
-          Positioned.fill(child: shell),
+          Positioned.fill(
+            child: live
+                // Pull down on any tab to sync with the server.
+                ? RefreshIndicator(
+                    color: LifeColors.lilac,
+                    backgroundColor: LifeColors.surfaceHigh,
+                    edgeOffset: MediaQuery.paddingOf(context).top,
+                    onRefresh: () async {
+                      await ref.read(syncEngineProvider).syncNow();
+                      await ref.read(assistantProvider.notifier).load();
+                    },
+                    child: shell,
+                  )
+                : shell,
+          ),
           Positioned(
             right: Space.screen,
             bottom: navBottom + Sizes.navHeight + Space.md,

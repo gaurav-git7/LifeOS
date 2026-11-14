@@ -54,14 +54,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       final a = auth.value;
       final loc = state.matchedLocation;
       final public = Routes.isPublic(loc);
+      if (a.status == AuthStatus.unknown) return loc == Routes.splash ? null : Routes.splash;
       if (!a.signedIn) {
-        if (public) return null;
+        if (public && loc != Routes.splash) return null;
         return a.onboarded ? Routes.login : Routes.onboarding;
       }
       if (public) return Routes.home;
       return null;
     },
     routes: [
+      _page(Routes.splash, (_) => const SplashScreen()),
       _page(Routes.onboarding, (_) => const OnboardingScreen()),
       _page(Routes.login, (_) => const LoginScreen()),
       _page(Routes.register, (_) => const RegisterScreen()),

@@ -9,6 +9,7 @@ import '../../../core/widgets/layout/tab_scaffold.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../../data/models.dart';
 import '../../../data/stores.dart';
+import '../../../shared/create_sheets.dart';
 import 'growth_widgets.dart';
 
 /// Skills, roadmaps, study and projects. See docs/UI_UX.md §9.3.
@@ -44,12 +45,21 @@ class _GrowthScreenState extends ConsumerState<GrowthScreen> {
       ],
       slivers: [
         const SliverSection(bottom: Space.lg, child: _LevelCard()),
-        SliverSection(
-          bottom: Space.lg,
-          child: SegmentedGlass(
-            segments: const ['Overview', 'Skills', 'Paths', 'Study', 'Projects'],
-            index: _tab,
-            onChanged: (i) => setState(() => _tab = i),
+        // Five sections don't fit a segmented control on a phone; chips scroll.
+        SliverPadding(
+          padding: const EdgeInsets.only(bottom: Space.lg),
+          sliver: SliverToBoxAdapter(
+            child: FilterChipRow(
+              selected: _tab,
+              onSelected: (i) => setState(() => _tab = i),
+              chips: const [
+                FilterChipData('Overview', icon: LucideIcons.layoutGrid),
+                FilterChipData('Skills', icon: LucideIcons.gem),
+                FilterChipData('Roadmaps', icon: LucideIcons.map),
+                FilterChipData('Study', icon: LucideIcons.timer),
+                FilterChipData('Projects', icon: LucideIcons.folderGit2),
+              ],
+            ),
           ),
         ),
         SliverPadding(
@@ -296,6 +306,13 @@ class _SkillsTab extends ConsumerWidget {
               ),
             ),
           ),
+        GradientButton(
+          label: 'Track a skill',
+          icon: LucideIcons.plus,
+          variant: ButtonVariant.glass,
+          expand: true,
+          onPressed: () => showSkillEditor(context),
+        ),
       ],
     );
   }
@@ -382,9 +399,17 @@ class _RoadmapsTab extends ConsumerWidget {
         for (final (i, p) in paths.indexed)
           StaggeredEntry(index: i, child: Padding(padding: const EdgeInsets.only(bottom: Space.cardGap), child: _PathCard(path: p))),
         GradientButton(
-          label: 'Ask for a new roadmap',
-          icon: LucideIcons.sparkles,
+          label: 'New roadmap',
+          icon: LucideIcons.plus,
           variant: ButtonVariant.glass,
+          expand: true,
+          onPressed: () => showRoadmapEditor(context),
+        ),
+        const SizedBox(height: Space.sm),
+        GradientButton(
+          label: 'Ask the assistant to plan one',
+          icon: LucideIcons.sparkles,
+          variant: ButtonVariant.ghost,
           expand: true,
           onPressed: () {
             ref.read(assistantTabProvider.notifier).set(0);
@@ -574,6 +599,13 @@ class _ProjectsTab extends ConsumerWidget {
               ),
             ),
           ),
+        GradientButton(
+          label: 'New project',
+          icon: LucideIcons.plus,
+          variant: ButtonVariant.glass,
+          expand: true,
+          onPressed: () => showProjectEditor(context),
+        ),
       ],
     );
   }
@@ -586,7 +618,8 @@ class _ProjectDetail extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final p = ref.watch(learningProvider).projects.firstWhere((x) => x.id == projectId);
+    final p = ref.watch(learningProvider).projects.where((x) => x.id == projectId).firstOrNull;
+    if (p == null) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -620,6 +653,27 @@ class _ProjectDetail extends ConsumerWidget {
               ),
             ],
           ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: GradientButton(
+            label: 'Add milestone',
+            icon: LucideIcons.plus,
+            variant: ButtonVariant.ghost,
+            compact: true,
+            onPressed: () => showMilestoneAdder(context, projectId: p.id),
+          ),
+        ),
+        const SizedBox(height: Space.lg),
+        GradientButton(
+          label: 'Delete project',
+          icon: LucideIcons.trash2,
+          variant: ButtonVariant.danger,
+          expand: true,
+          onPressed: () {
+            ref.read(learningProvider.notifier).removeProject(p.id);
+            Navigator.of(context).pop();
+          },
+        ),
       ],
     );
   }

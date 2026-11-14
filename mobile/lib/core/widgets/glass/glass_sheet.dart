@@ -13,6 +13,9 @@ Future<T?> showGlassSheet<T>(
 }) {
   return showModalBottomSheet<T>(
     context: context,
+    // Root navigator: the sheet covers the whole app, including the tab bar and
+    // the + button (which live in the shell, above each tab's own navigator).
+    useRootNavigator: true,
     isScrollControlled: true,
     useSafeArea: true,
     backgroundColor: Colors.transparent,

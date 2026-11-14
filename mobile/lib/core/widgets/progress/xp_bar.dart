@@ -69,9 +69,8 @@ class XpBar extends StatelessWidget {
         if (showLabels) ...[
           Row(
             children: [
-              Text('Level $level', style: LifeText.label),
-              const Spacer(),
-              Text('${f.format(xp)} / ${f.format(xpForNext)} XP', style: LifeText.mono),
+              Expanded(child: Text('Level $level', style: LifeText.label)),
+              Flexible(child: Text('${f.format(xp)} / ${f.format(xpForNext)} XP', style: LifeText.mono, overflow: TextOverflow.ellipsis)),
             ],
           ),
           const SizedBox(height: Space.sm),

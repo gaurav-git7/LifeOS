@@ -85,9 +85,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: Space.xxl),
                         child: Column(
                           children: [
-                            const Spacer(),
-                            SizedBox(height: 230, child: Center(child: s.$1)),
-                            const Spacer(),
+                            // The illustration shrinks on short screens instead of overflowing.
+                            Expanded(
+                              child: Center(
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: SizedBox(height: 230, child: Center(child: s.$1)),
+                                ),
+                              ),
+                            ),
                             Text(s.$2, textAlign: TextAlign.center, style: LifeText.display),
                             Text(s.$3, textAlign: TextAlign.center, style: LifeText.displayItalic.copyWith(color: LifeColors.text2)),
                             const SizedBox(height: Space.lg),

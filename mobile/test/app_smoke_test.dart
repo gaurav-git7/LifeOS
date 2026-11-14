@@ -5,23 +5,30 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:lifeos/app/app.dart';
 import 'package:lifeos/core/motion/motion.dart';
 import 'package:lifeos/data/stores.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'helpers/fake_api.dart';
 
 void main() {
   setUpAll(() => GoogleFonts.config.allowRuntimeFetching = false);
 
-  Future<ProviderContainer> pumpApp(WidgetTester tester, {bool signedIn = true}) async {
+  Future<ProviderContainer> pumpApp(WidgetTester tester, {bool signedIn = true, FakeApi? api}) async {
     tester.view.physicalSize = const Size(1080, 2340);
     tester.view.devicePixelRatio = 2.6;
     addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues({});
 
-    final container = ProviderContainer();
+    final container = api != null ? fakeLiveContainer(api) : ProviderContainer();
     addTearDown(container.dispose);
     // Reduced motion so ambient animations don't keep the test pumping forever.
     container.read(motionSettingsProvider.notifier).setReduceMotion(true);
     if (signedIn) container.read(authProvider.notifier).debugSignIn();
 
     await tester.pumpWidget(UncontrolledProviderScope(container: container, child: const LifeOSApp()));
-    await tester.pump(const Duration(seconds: 1));
+    // Session restore → redirect → page transition.
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 200));
+    }
     return container;
   }
 
@@ -38,7 +45,8 @@ void main() {
   }
 
   testWidgets('signed out → onboarding → register → home', (tester) async {
-    await pumpApp(tester, signedIn: false);
+    final api = FakeApi();
+    final c = await pumpApp(tester, signedIn: false, api: api);
     expect(find.text('operating system.'), findsOneWidget);
     await tester.tap(find.text('Skip'));
     await settle(tester);
@@ -53,6 +61,21 @@ void main() {
     await tester.tap(find.text('Create account'));
     await settle(tester, 12);
     expect(find.text('Priorities'), findsOneWidget);
+    // Live mode: starts empty (no sample data) and talks to the server.
+    expect(c.read(authProvider).live, isTrue);
+    expect(c.read(tasksProvider), isEmpty);
+    expect(api.calls, containsAll(['POST /auth/register', 'GET /sync/pull']));
+  });
+
+  testWidgets('sample data mode from the sign-in screen', (tester) async {
+    final c = await pumpApp(tester, signedIn: false, api: FakeApi());
+    await tester.tap(find.text('Skip'));
+    await settle(tester);
+    await tester.tap(find.text('Explore with sample data'));
+    await settle(tester, 10);
+    expect(find.text('Priorities'), findsOneWidget);
+    expect(c.read(authProvider).live, isFalse);
+    expect(c.read(tasksProvider), isNotEmpty);
   });
 
   testWidgets('every tab renders', (tester) async {

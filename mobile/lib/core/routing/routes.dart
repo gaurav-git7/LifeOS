@@ -1,6 +1,7 @@
 /// Route paths. See docs/UI_UX.md §8.1.
 abstract final class Routes {
   // auth
+  static const splash = '/splash';
   static const onboarding = '/onboarding';
   static const login = '/auth/login';
   static const register = '/auth/register';
@@ -34,5 +35,5 @@ abstract final class Routes {
   /// Tab order in the bottom navigation.
   static const tabs = [home, plan, growth, journal, assistant];
 
-  static bool isPublic(String location) => location.startsWith('/auth') || location == onboarding;
+  static bool isPublic(String location) => location.startsWith('/auth') || location == onboarding || location == splash;
 }
