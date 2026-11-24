@@ -12,6 +12,7 @@ import '../../../data/models.dart';
 import '../../../data/seed.dart';
 import '../../../data/stores.dart';
 import '../../../data/sync/sync_engine.dart';
+import '../../../shared/task_editor_sheet.dart';
 import '../../../shared/task_tile.dart';
 
 
@@ -177,12 +178,18 @@ class _Header extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Wrap(
-                spacing: Space.xs,
-                runSpacing: 2,
-                crossAxisAlignment: WrapCrossAlignment.center,
+              Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(DateFormat('EEEE, d MMMM').format(now), style: LifeText.eyebrow),
+                  Flexible(
+                    child: Text(
+                      DateFormat('EEEE, d MMMM').format(now),
+                      style: LifeText.eyebrow,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: Space.xs),
                   const _SyncStatusPill(),
                 ],
               ),
@@ -739,6 +746,7 @@ class _NextUpcomingCard extends StatelessWidget {
             : 'in ${(diff / 60).toStringAsFixed(1)} h';
 
     return GlassCard(
+      onTap: () => showTaskEditor(context, task: task),
       padding: const EdgeInsets.symmetric(horizontal: Space.md, vertical: Space.sm),
       tint: LifeColors.amber,
       child: Row(
@@ -750,9 +758,11 @@ class _NextUpcomingCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('UPCOMING AT $timeStr ($diffStr)',
-                    style: LifeText.eyebrow.copyWith(color: LifeColors.amber, fontSize: 10)),
+                    style: LifeText.eyebrow.copyWith(color: LifeColors.amber, fontSize: 10),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 2),
-                Text(task.title, style: LifeText.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text('Next: ${task.title}', style: LifeText.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
               ],
             ),
           ),
@@ -808,7 +818,10 @@ class _ActiveGoalCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('ACTIVE GOAL · ${goal.category.toUpperCase()}', style: LifeText.eyebrow.copyWith(fontSize: 10)),
+                    Text('ACTIVE GOAL · ${goal.category.toUpperCase()}',
+                        style: LifeText.eyebrow.copyWith(fontSize: 10),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 2),
                     Text(goal.title, style: LifeText.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
                   ],
