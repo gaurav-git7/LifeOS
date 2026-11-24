@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/widgets/widgets.dart';
 import '../../../data/models.dart';
@@ -36,6 +38,8 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
   bool _everSaved = false;
   late final JournalNotifier _journal = ref.read(journalProvider.notifier); // usable in dispose()
 
+  static String _draftKey(String id) => 'lifeos_draft_$id';
+
   @override
   void initState() {
     super.initState();
@@ -53,6 +57,42 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
     if (ref.read(prefsProvider).journalLock) SystemChannel.setSecure(true); // hide from recents / screenshots
     _title.addListener(_changed);
     _body.addListener(_changed);
+    if (existing == null) Future.microtask(_restoreDraftIfAny);
+  }
+
+  Future<void> _restoreDraftIfAny() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_draftKey('new'));
+      if (raw == null || !mounted) return;
+      final m = jsonDecode(raw) as Map<String, dynamic>;
+      final t = (m['title'] as String?) ?? '';
+      final b = (m['body'] as String?) ?? '';
+      if ((t.isNotEmpty || b.isNotEmpty) && _title.text.isEmpty && _body.text.isEmpty) {
+        setState(() {
+          _title.text = t;
+          _body.text = b;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Restored unsaved draft'), duration: Duration(seconds: 2)),
+        );
+      }
+    } catch (_) {}
+  }
+
+  void _saveDraft() {
+    unawaited(SharedPreferences.getInstance().then((p) {
+      final draft = jsonEncode({'title': _title.text, 'body': _body.text, 'saved_at': DateTime.now().toUtc().toIso8601String()});
+      p.setString(_draftKey(_id), draft);
+      if (widget.entryId == null) p.setString(_draftKey('new'), draft);
+    }).catchError((_) {}));
+  }
+
+  void _clearDraft() {
+    unawaited(SharedPreferences.getInstance().then((p) {
+      p.remove(_draftKey(_id));
+      p.remove(_draftKey('new'));
+    }).catchError((_) {}));
   }
 
   void _changed() {
@@ -71,6 +111,7 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
           aiAllowed: _aiAllowed,
           prompt: _prompt,
         ));
+    _saveDraft();
     if (mounted) {
       setState(() {
         _saved = true;
@@ -142,6 +183,7 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
                             if (ok) {
                               _debounce?.cancel();
                               _saved = true;
+                              _clearDraft();
                               ref.read(journalProvider.notifier).deleteEntry(_id);
                               if (context.mounted) context.pop();
                             }
@@ -172,6 +214,51 @@ class _JournalEditorScreenState extends ConsumerState<JournalEditorScreen> {
                           contentPadding: EdgeInsets.zero,
                         ),
                       ),
+                      const SizedBox(height: Space.xs),
+                      SizedBox(
+                        height: 32,
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          children: [
+                            for (final p in const [
+                              'What went well?',
+                              'What didn’t go as planned?',
+                              'What did I learn?',
+                              'What will I improve?',
+                            ])
+                              Padding(
+                                padding: const EdgeInsets.only(right: Space.xs),
+                                child: Pressable(
+                                  onTap: () {
+                                    final header = '### $p\n\n';
+                                    if (_body.text.contains(p)) return;
+                                    final prefix = _body.text.trim().isEmpty ? '' : '\n\n';
+                                    _body.text = '${_body.text}$prefix$header';
+                                    _body.selection = TextSelection.collapsed(offset: _body.text.length);
+                                    _changed();
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: Space.sm, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: LifeColors.glass,
+                                      borderRadius: BorderRadius.circular(Radii.pill),
+                                      border: Border.all(color: LifeColors.glassBorder),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(LucideIcons.plus, size: 12, color: LifeColors.rose),
+                                        const SizedBox(width: 4),
+                                        Text(p, style: LifeText.caption.copyWith(color: LifeColors.text2, fontSize: 11)),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: Space.sm),
                       TextField(
                         controller: _body,
                         autofocus: widget.entryId == null,

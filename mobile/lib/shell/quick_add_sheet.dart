@@ -77,6 +77,7 @@ class _QuickAddSheetState extends ConsumerState<QuickAddSheet> {
       (LucideIcons.squareCheck, 'Task', LifeColors.iris, (c) => showTaskEditor(c)),
       (LucideIcons.alarmClock, 'Reminder', LifeColors.amber, (c) => showTaskEditor(c, defaultDue: DateTime.now())),
       (LucideIcons.penLine, 'Journal', LifeColors.rose, (c) => c.push(Routes.journalNew())),
+      (LucideIcons.lightbulb, 'Note / Idea', LifeColors.amber, (c) => c.push(Routes.journalNew(prompt: 'Quick thought:'))),
       (LucideIcons.smile, 'Mood', LifeColors.coral, (c) => c.go(Routes.journal)),
       (LucideIcons.timer, 'Study session', LifeColors.mint, (c) => c.push(Routes.focus)),
     ];

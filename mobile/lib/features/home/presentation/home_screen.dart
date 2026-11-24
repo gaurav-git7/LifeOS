@@ -11,6 +11,7 @@ import '../../../core/widgets/widgets.dart';
 import '../../../data/models.dart';
 import '../../../data/seed.dart';
 import '../../../data/stores.dart';
+import '../../../data/sync/sync_engine.dart';
 import '../../../shared/task_tile.dart';
 
 
@@ -46,6 +47,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         return (a.due ?? now).compareTo(b.due ?? now);
       });
 
+    final upcoming = tasks
+        .where((t) => !t.done && t.isDueOn(now) && t.hasTime && t.due != null && t.due!.isAfter(now))
+        .toList()
+      ..sort((a, b) => a.due!.compareTo(b.due!));
+    final nextTask = upcoming.firstOrNull;
+
+    final goals = ref.watch(goalsProvider);
+    final activeGoal = goals.where((g) => !g.completed).firstOrNull;
+    final activeGoalProg = activeGoal != null ? goalProgress(activeGoal, tasks) : 0.0;
+
     void onCompleted() {
       final t = ref.read(tasksProvider).where((t) => t.isDueOn(DateTime.now()));
       if (t.isNotEmpty && t.every((x) => x.done)) setState(() => _burst++);
@@ -66,10 +77,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
         ),
-        SliverSection(child: StaggeredEntry(index: 1, child: _InsightCard(pending: pending))),
+        if (nextTask != null)
+          SliverSection(
+            bottom: Space.cardGap,
+            child: StaggeredEntry(
+              index: 1,
+              child: _NextUpcomingCard(
+                task: nextTask,
+                onCompleted: () {
+                  ref.read(tasksProvider.notifier).toggle(nextTask.id);
+                  onCompleted();
+                },
+              ),
+            ),
+          ),
+        SliverSection(child: StaggeredEntry(index: 2, child: _InsightCard(pending: pending))),
         SliverSection(
           child: StaggeredEntry(
-            index: 2,
+            index: 3,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -79,9 +104,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
         ),
+        if (activeGoal != null)
+          SliverSection(
+            child: StaggeredEntry(
+              index: 4,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SectionHeader(title: 'Active Goal', action: 'All goals', onAction: () => context.go(Routes.plan)),
+                  _ActiveGoalCard(goal: activeGoal, progress: activeGoalProg),
+                ],
+              ),
+            ),
+          ),
         SliverSection(
           child: StaggeredEntry(
-            index: 3,
+            index: 5,
             child: GlassCard(
               padding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.sm),
               child: Column(
@@ -139,7 +177,15 @@ class _Header extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(DateFormat('EEEE, d MMMM').format(now), style: LifeText.eyebrow),
+              Wrap(
+                spacing: Space.xs,
+                runSpacing: 2,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(DateFormat('EEEE, d MMMM').format(now), style: LifeText.eyebrow),
+                  const _SyncStatusPill(),
+                ],
+              ),
               const SizedBox(height: Space.xs),
               Text('${_greeting(now.hour)},', style: LifeText.titleSerif.copyWith(fontSize: 34, height: 1.05)),
               Text(name, style: LifeText.titleSerifItalic.copyWith(fontSize: 34, height: 1.05, color: LifeColors.text2)),
@@ -269,7 +315,7 @@ class _TodayCard extends ConsumerWidget {
 
     return GlassCard(
       radius: Radii.xl,
-      onTap: () => context.go(Routes.assistant),
+      onTap: () => context.push(Routes.journalInsights),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -279,11 +325,17 @@ class _TodayCard extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Today', style: LifeText.eyebrow),
+                    Row(
+                      children: [
+                        Text('Today', style: LifeText.eyebrow),
+                        const SizedBox(width: Space.xs),
+                        const Icon(LucideIcons.chevronRight, size: 14, color: LifeColors.text3),
+                      ],
+                    ),
                     const SizedBox(height: Space.xs),
                     AnimatedCounter(value: overall * 100, suffix: '%', style: LifeText.statHero),
                     const SizedBox(height: Space.xs),
-                    Text('of today done', style: LifeText.caption),
+                    Text('of today done · tap for insights', style: LifeText.caption),
                     const SizedBox(height: Space.sm),
                     Text(summary, style: LifeText.body.copyWith(color: LifeColors.text2)),
                   ],
@@ -598,6 +650,206 @@ class _LearningSection extends ConsumerWidget {
                 ],
               ),
             ),
+    );
+  }
+}
+
+class _SyncStatusPill extends ConsumerWidget {
+  const _SyncStatusPill();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sync = ref.watch(syncStatusProvider);
+    final icon = switch (sync.phase) {
+      SyncPhase.syncing => LucideIcons.refreshCw,
+      SyncPhase.offline => LucideIcons.cloudOff,
+      SyncPhase.error => LucideIcons.cloudAlert,
+      SyncPhase.idle => LucideIcons.cloudCheck,
+    };
+    final label = switch (sync.phase) {
+      SyncPhase.syncing => 'Syncing',
+      SyncPhase.offline => 'Offline',
+      SyncPhase.error => 'Issue',
+      SyncPhase.idle => 'Synced',
+    };
+    final color = switch (sync.phase) {
+      SyncPhase.error => LifeColors.amber,
+      SyncPhase.syncing => LifeColors.lilac,
+      SyncPhase.offline => LifeColors.text3,
+      SyncPhase.idle => LifeColors.text3,
+    };
+
+    return Pressable(
+      onTap: () async {
+        final messenger = ScaffoldMessenger.of(context);
+        if (sync.phase == SyncPhase.syncing) {
+          messenger.showSnackBar(const SnackBar(content: Text('Syncing with LifeOS cloud…'), duration: Duration(seconds: 1)));
+        } else if (sync.phase == SyncPhase.offline) {
+          messenger.showSnackBar(const SnackBar(
+            content: Text('Working offline. Changes are saved locally and will push when reconnected.'),
+            duration: Duration(seconds: 2),
+          ));
+        } else if (sync.phase == SyncPhase.error) {
+          messenger.showSnackBar(SnackBar(
+            content: Text('Sync issue: ${sync.message ?? 'Check network connection'}'),
+            action: SnackBarAction(label: 'Retry', onPressed: () => ref.read(syncEngineProvider).syncNow()),
+            duration: const Duration(seconds: 4),
+          ));
+        } else {
+          messenger.showSnackBar(const SnackBar(content: Text('Syncing now…'), duration: Duration(seconds: 1)));
+          await ref.read(syncEngineProvider).syncNow();
+        }
+      },
+      semanticLabel: 'Sync status: $label',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+        decoration: BoxDecoration(
+          color: LifeColors.glass,
+          borderRadius: BorderRadius.circular(Radii.pill),
+          border: Border.all(color: sync.phase == SyncPhase.error ? LifeColors.amber.withValues(alpha: 0.5) : LifeColors.glassBorder),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 10, color: color),
+            const SizedBox(width: 4),
+            Text(label, style: LifeText.mono.copyWith(fontSize: 10, color: color)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NextUpcomingCard extends StatelessWidget {
+  const _NextUpcomingCard({required this.task, required this.onCompleted});
+
+  final Task task;
+  final VoidCallback onCompleted;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final timeStr = task.due != null ? DateFormat('HH:mm').format(task.due!) : '';
+    final diff = task.due != null ? task.due!.difference(now).inMinutes : 0;
+    final diffStr = diff <= 0
+        ? 'Now'
+        : diff < 60
+            ? 'in $diff m'
+            : 'in ${(diff / 60).toStringAsFixed(1)} h';
+
+    return GlassCard(
+      padding: const EdgeInsets.symmetric(horizontal: Space.md, vertical: Space.sm),
+      tint: LifeColors.amber,
+      child: Row(
+        children: [
+          const Icon(LucideIcons.alarmClock, size: 18, color: LifeColors.amber),
+          const SizedBox(width: Space.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('UPCOMING AT $timeStr ($diffStr)',
+                    style: LifeText.eyebrow.copyWith(color: LifeColors.amber, fontSize: 10)),
+                const SizedBox(height: 2),
+                Text(task.title, style: LifeText.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+          const SizedBox(width: Space.sm),
+          Pressable(
+            onTap: onCompleted,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: Space.sm, vertical: Space.xs),
+              decoration: BoxDecoration(
+                color: LifeColors.amber.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(Radii.pill),
+                border: Border.all(color: LifeColors.amber.withValues(alpha: 0.4)),
+              ),
+              child: Text('Done', style: LifeText.caption.copyWith(color: LifeColors.amber, fontWeight: FontWeight.w600)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActiveGoalCard extends StatelessWidget {
+  const _ActiveGoalCard({required this.goal, required this.progress});
+
+  final Goal goal;
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = (progress * 100).round();
+    final targetStr = goal.targetDate != null ? 'Target: ${DateFormat('d MMM').format(goal.targetDate!)}' : null;
+    final nextMilestone = goal.milestones.where((m) => !m.done).firstOrNull;
+
+    return GlassCard(
+      onTap: () => context.go(Routes.plan),
+      padding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(Space.xs),
+                decoration: BoxDecoration(
+                  color: goal.color.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(goal.icon, size: 16, color: goal.color),
+              ),
+              const SizedBox(width: Space.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('ACTIVE GOAL · ${goal.category.toUpperCase()}', style: LifeText.eyebrow.copyWith(fontSize: 10)),
+                    const SizedBox(height: 2),
+                    Text(goal.title, style: LifeText.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ],
+                ),
+              ),
+              const SizedBox(width: Space.sm),
+              Text('$pct%', style: LifeText.mono.copyWith(fontWeight: FontWeight.w700, color: goal.color)),
+              const SizedBox(width: 4),
+              const Icon(LucideIcons.chevronRight, size: 16, color: LifeColors.text3),
+            ],
+          ),
+          const SizedBox(height: Space.sm),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(Radii.pill),
+            child: LinearProgressIndicator(
+              value: progress.clamp(0.0, 1.0),
+              minHeight: 5,
+              backgroundColor: LifeColors.surfaceHigh,
+              valueColor: AlwaysStoppedAnimation<Color>(goal.color),
+            ),
+          ),
+          if (nextMilestone != null || targetStr != null) ...[
+            const SizedBox(height: Space.xs),
+            Row(
+              children: [
+                if (nextMilestone != null)
+                  Expanded(
+                    child: Text(
+                      'Next: ${nextMilestone.title}',
+                      style: LifeText.caption.copyWith(color: LifeColors.text2),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                if (targetStr != null)
+                  Text(targetStr, style: LifeText.caption.copyWith(color: LifeColors.text3)),
+              ],
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

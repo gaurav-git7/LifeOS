@@ -6,6 +6,7 @@
 // Screens don't care which mode is active.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -1259,12 +1260,35 @@ class AssistantState {
 class AssistantNotifier extends Notifier<AssistantState> {
   Timer? _stream;
   String? _conversationId;
+  static const _proposalsCacheKey = 'lifeos_cached_proposals';
 
   @override
   AssistantState build() {
     ref.onDispose(() => _stream?.cancel());
-    if (ref.read(authProvider).live) return const AssistantState(messages: [], proposals: []);
+    if (ref.read(authProvider).live) {
+      Future.microtask(_restoreCachedProposals);
+      return const AssistantState(messages: [], proposals: []);
+    }
     return AssistantState(messages: Seed.messages(), proposals: Seed.proposals());
+  }
+
+  Future<void> _restoreCachedProposals() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_proposalsCacheKey);
+      if (raw == null || !ref.mounted) return;
+      final list = jsonDecode(raw) as List<dynamic>;
+      final proposals = [for (final p in list) fromApi(Map<String, dynamic>.from(p as Map))];
+      if (state.proposals.isEmpty) {
+        state = state.copyWith(proposals: proposals);
+      }
+    } catch (_) {}
+  }
+
+  void _saveCachedProposals(List<dynamic> rawPending) {
+    unawaited(SharedPreferences.getInstance().then((p) {
+      p.setString(_proposalsCacheKey, jsonEncode(rawPending));
+    }).catchError((_) {}));
   }
 
   bool get _live => ref.read(authProvider).live;
@@ -1319,6 +1343,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
     if (!_live) return;
     try {
       final pending = await _api.get<List<dynamic>>('/agent/proposals');
+      _saveCachedProposals(pending);
       if (!ref.mounted) return;
       final convs = await _api.get<List<dynamic>>('/agent/conversations', query: {'limit': 1});
       if (!ref.mounted) return;
@@ -1710,8 +1735,44 @@ class Reviews {
 }
 
 class ReviewsNotifier extends Notifier<Reviews> {
+  static const _cacheKey = 'lifeos_cached_reviews';
+
   @override
-  Reviews build() => const Reviews();
+  Reviews build() {
+    Future.microtask(_restoreCache);
+    return const Reviews();
+  }
+
+  Future<void> _restoreCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_cacheKey);
+      if (raw == null || !ref.mounted) return;
+      final m = jsonDecode(raw) as Map<String, dynamic>;
+      state = Reviews(
+        insight: m['insight'] as String?,
+        highlights: _strings(m['highlights']),
+        attention: _strings(m['attention']),
+        weeklyReport: m['weeklyReport'] as String?,
+        recommendations: _strings(m['recommendations']),
+      );
+    } catch (_) {}
+  }
+
+  void _saveCache() {
+    unawaited(SharedPreferences.getInstance().then((p) {
+      p.setString(
+        _cacheKey,
+        jsonEncode({
+          'insight': state.insight,
+          'highlights': state.highlights,
+          'attention': state.attention,
+          'weeklyReport': state.weeklyReport,
+          'recommendations': state.recommendations,
+        }),
+      );
+    }).catchError((_) {}));
+  }
 
   ApiClient get _api => ref.read(apiClientProvider);
 
@@ -1725,6 +1786,7 @@ class ReviewsNotifier extends Notifier<Reviews> {
       weeklyReport: s.weeklyReport,
       recommendations: s.recommendations,
     );
+    _saveCache();
   }
 
   void _weekly(Map<String, dynamic> w, Reviews s) {
@@ -1735,6 +1797,7 @@ class ReviewsNotifier extends Notifier<Reviews> {
       weeklyReport: w['available'] == true ? w['report'] as String? : s.weeklyReport,
       recommendations: w['available'] == true ? _strings(w['recommendations']) : s.recommendations,
     );
+    _saveCache();
   }
 
   Future<void> load() async {

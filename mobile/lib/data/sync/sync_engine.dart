@@ -67,8 +67,43 @@ class SyncEngine {
   Future<void>? _pulling;
 
   static const _cacheKey = 'lifeos_sync_cache_v1';
+  static const _diagKey = 'lifeos_sync_diagnostics';
 
   ApiClient get api => ref.read(apiClientProvider);
+
+  Future<void> _logDiagnostic({
+    required String action,
+    required int count,
+    required int durationMs,
+    required bool success,
+    String? error,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getStringList(_diagKey) ?? <String>[];
+      final entry = jsonEncode({
+        'at': DateTime.now().toUtc().toIso8601String(),
+        'action': action,
+        'count': count,
+        'duration_ms': durationMs,
+        'success': success,
+        ...error == null ? const <String, dynamic>{} : {'error': error},
+      });
+      final updated = [entry, ...raw];
+      if (updated.length > 30) updated.removeRange(30, updated.length);
+      await prefs.setStringList(_diagKey, updated);
+    } catch (_) {}
+  }
+
+  Future<List<Map<String, dynamic>>> getDiagnostics() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getStringList(_diagKey) ?? const [];
+      return [for (final r in raw) Map<String, dynamic>.from(jsonDecode(r) as Map)];
+    } catch (_) {
+      return [];
+    }
+  }
 
   // ------------------------------------------------------------- cache
 
@@ -252,6 +287,7 @@ class SyncEngine {
     final batch = List<Map<String, dynamic>>.from(outbox.take(200));
     _inFlight.addAll(batch.map((c) => c['change_id'] as String));
     var needsPull = false;
+    final sw = Stopwatch()..start();
     try {
       _status(phase: SyncPhase.syncing);
       final results = await api.post<List<dynamic>>('/sync/push', data: {'changes': batch});
@@ -277,6 +313,7 @@ class SyncEngine {
       outbox.removeWhere((c) => batch.any((b) => b['change_id'] == c['change_id']));
       await _saveCache();
       _status(phase: SyncPhase.idle);
+      unawaited(_logDiagnostic(action: 'push', count: batch.length, durationMs: sw.elapsedMilliseconds, success: true));
       // Server-side effects (XP, streaks, next recurring task) arrive via pull.
       // A pull that started before this push may carry older rows: wait for it,
       // then pull again.
@@ -284,6 +321,7 @@ class SyncEngine {
       await pull();
       if (needsPull) publish();
     } on ApiException catch (e) {
+      unawaited(_logDiagnostic(action: 'push', count: batch.length, durationMs: sw.elapsedMilliseconds, success: false, error: e.message));
       if (ref.mounted) _status(phase: e.isNetwork ? SyncPhase.offline : SyncPhase.error, message: e.isNetwork ? null : e.message);
     } finally {
       _pushing = false;
@@ -297,6 +335,8 @@ class SyncEngine {
   Future<void> pull() => _pulling ??= _pull().whenComplete(() => _pulling = null);
 
   Future<void> _pull() async {
+    final sw = Stopwatch()..start();
+    var pulledCount = 0;
     try {
       _status(phase: SyncPhase.syncing);
       var more = true;
@@ -307,6 +347,7 @@ class SyncEngine {
         final pendingIds = {for (final c in outbox) '${c['entity']}/${c['id']}'};
         for (final e in syncEntities) {
           for (final r in (changes[e] as List? ?? const [])) {
+            pulledCount++;
             final row = Map<String, dynamic>.from(r as Map);
             final id = row['id'] as String;
             if (pendingIds.contains('$e/$id')) continue; // local change not sent yet wins for now
@@ -325,7 +366,9 @@ class SyncEngine {
       await ref.read(progressionProvider.notifier).refreshFromServer();
       if (!ref.mounted) return;
       ref.read(syncStatusProvider.notifier).set(SyncStatus(lastSync: DateTime.now(), pending: outbox.length));
+      unawaited(_logDiagnostic(action: 'pull', count: pulledCount, durationMs: sw.elapsedMilliseconds, success: true));
     } on ApiException catch (e) {
+      unawaited(_logDiagnostic(action: 'pull', count: pulledCount, durationMs: sw.elapsedMilliseconds, success: false, error: e.message));
       if (ref.mounted) _status(phase: e.isNetwork ? SyncPhase.offline : SyncPhase.error, message: e.isNetwork ? null : e.message);
     }
   }

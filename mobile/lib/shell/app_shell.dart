@@ -21,10 +21,10 @@ class AppShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final index = shell.currentIndex;
     final navBottom = 10 + MediaQuery.paddingOf(context).bottom;
-    final showFab = index <= 1; // Home and Plan
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final showFab = !keyboardOpen; // Available across all tabs when keyboard is closed
     final d = Motion.of(context, Motion.card);
     final pending = ref.watch(assistantProvider.select((s) => s.pending.length));
-    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
     final live = ref.watch(authProvider.select((a) => a.live));
     final journalLock = ref.watch(prefsProvider.select((p) => p.journalLock));
     SystemChannel.setSecure(journalLock && index == 3); // journal hidden from recents / screenshots
